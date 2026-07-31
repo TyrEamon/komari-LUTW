@@ -10,15 +10,19 @@
 
 > ⚠️ 这些数字都是编造的，不是真实机器信息，仅用于"点亮地图"这类展示。
 
-## 部署到 Cloudflare（Git 绑定方式）
+## 部署到 Cloudflare（网页后台手动方式）
 
-1. **建 KV**：Cloudflare 后台 → Storage & Databases → KV → 新建一个命名空间，复制它的 **ID**。
-2. 把 ID 填进本仓库的 `wrangler.toml` 里 `[[kv_namespaces]] id = "..."`，并把 `KOMARI_SERVER` 改成你的面板地址，提交。
-3. **Workers & Pages → Create → Workers → Connect to Git**，选本仓库。CF 会读 `wrangler.toml` 自动构建部署。
-4. 在该 Worker 的 **Settings → Variables and Secrets** 里加密钥（不要写进仓库）：
-   - `KOMARI_ADKEY`（Secret）— 自动发现密钥，仅 `/register` 需要
-   - `ACCESS_KEY`（Secret，可选）— 保护 `/register /setup /reset`
-5. **Settings → Triggers → Cron Triggers** 加 `* * * * *`（每分钟）。代码内部跑 2 轮、隔 30s，盖住 Komari 的 35s 在线判定。
+全程在 Cloudflare 后台点，不用装 node/wrangler：
+
+1. **建 KV**：后台 → Storage & Databases → KV → 新建命名空间（名字随意）。
+2. **建 Worker**：Workers & Pages → Create → Workers → 起名 → Deploy（先部署默认的）→ **Edit code**，把本仓库 `worker.js` 全部内容粘进去 → Deploy。
+3. **绑 KV**：该 Worker → Settings → Bindings → Add → KV namespace，Variable name 填 **`KOMARI_KV`**（一字不差），选第 1 步的命名空间。
+4. **加变量**：Settings → Variables and Secrets：
+   - `KOMARI_SERVER` = 你的面板地址（Plaintext）
+   - `KOMARI_ADKEY` = 自动发现密钥（Secret，仅 `/register` 需要）
+   - `ACCESS_KEY` = 可选口令（Secret，保护 `/register /setup /reset`）
+5. **加定时器**：Settings → Triggers → Cron Triggers → `* * * * *`（每分钟）。代码内部跑 2 轮、隔 30s，盖住 Komari 的 35s 在线判定。
+
 
 ## 连接（把探针挂上面板）
 
@@ -59,8 +63,7 @@ Cloudflare 免费版**每次触发最多 50 个子请求**，保活 200 个国�
 
 ## 文件
 
-- `worker.js` — Worker / Pages 主程序
-- `wrangler.toml` — 部署配置（填 KV id 与 KOMARI_SERVER）
+- `worker.js` — Worker / Pages 主程序（把它整段粘进 CF 代码编辑器）
 - `komari点亮全球.py` — 本地脚本版（不想上 CF 时用，功能较简单）
 
 仅用于自己的面板做展示，请勿滥用。
