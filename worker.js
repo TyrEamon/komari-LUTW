@@ -322,6 +322,89 @@ async function keepAlive(env, c, opts) {
 }
 
 const txt = (s, status = 200) => new Response(s, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
+const html = (s) => new Response(s, { headers: { "content-type": "text/html; charset=utf-8" } });
+
+// 内联单页控制台(纯 HTML+JS, 无框架/无构建)。浏览器打开 worker 首页即可可视化操作。
+const UI = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>komari 点亮全球</title>
+<style>
+:root{--bg:#0f1220;--card:#1a1f36;--line:#2a3152;--fg:#e8ebf5;--mut:#8b93b8;--acc:#6c8cff;--ok:#37d67a;--err:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,"Segoe UI",sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:20px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px;font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+.card h2{font-size:14px;margin:0 0 12px;color:var(--acc)}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
+input,select{width:100%;padding:8px 10px;background:#0d1024;border:1px solid var(--line);border-radius:8px;color:var(--fg);font-size:13px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.chk{display:flex;align-items:center;gap:6px;margin-top:10px}.chk input{width:auto}
+button{cursor:pointer;border:0;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;color:#fff;background:var(--acc);margin:10px 6px 0 0}
+button.g{background:#2a3152}button.r{background:var(--err)}button:active{transform:translateY(1px)}
+pre{background:#0a0c1a;border:1px solid var(--line);border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-all;min-height:40px;margin:14px 0 0;font-size:12px}
+.pill{display:inline-block;background:#0d1024;border:1px solid var(--line);border-radius:20px;padding:3px 10px;margin:2px;font-size:12px}
+small{color:var(--mut)}a{color:var(--acc)}
+</style></head><body><div class="wrap">
+<h1>komari 点亮全球 <small id="cnt"></small></h1>
+<p class="sub">可视化控制台 · 数据全部本地拼接调用本 worker 接口</p>
+
+<div class="card"><h2>访问口令</h2>
+<label>ACCESS_KEY（若后台设了才需要，浏览器本地保存）</label>
+<input id="key" placeholder="没设就留空" autocomplete="off">
+</div>
+
+<div class="card"><h2>① 注册探针</h2>
+<label>国家代码（逗号分隔；留空=内置 ~200 个；同一国家写多次+勾选重复即可多开）</label>
+<input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
+<div class="row3">
+<div><label>IP 模式</label><select id="ipmode"><option value="">默认(v4)</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
+<div><label>每次数量 limit</label><input id="limit" placeholder="20"></div>
+<div><label>核数 cores</label><input id="cores" placeholder="随机"></div>
+</div>
+<div class="row3">
+<div><label>内存 GB</label><input id="mem" placeholder="随机"></div>
+<div><label>磁盘 GB</label><input id="disk" placeholder="随机"></div>
+<div><label>CPU 型号</label><input id="cpu" placeholder="随机"></div>
+</div>
+<div class="row">
+<div><label>下行 KB/s downrate</label><input id="downrate" placeholder="随机(不填=KB级)"></div>
+<div><label>上行 KB/s uprate</label><input id="uprate" placeholder="随机"></div>
+</div>
+<label class="chk"><input type="checkbox" id="force"> 允许重复国家 / 覆盖重建 (force)</label>
+<button onclick="reg()">注册 / 继续注册</button>
+</div>
+
+<div class="card"><h2>② 或用已有 token 接入</h2>
+<label>tokens（格式 token:US,token2:JP）</label>
+<input id="tokens" placeholder="Pf8xxxx:US,abcd:JP">
+<button onclick="setup()">接入</button>
+</div>
+
+<div class="card"><h2>③ 运维</h2>
+<button class="g" onclick="go('/status')">查看状态</button>
+<button class="g" onclick="go('/drive?rounds=1&gap=0')">立即保活一次</button>
+<label style="margin-top:12px">按国家移除（从 KV，面板仍需手动删）</label>
+<input id="rmc" placeholder="US,JP">
+<button class="r" onclick="rm()">移除这些国家</button>
+<button class="r" onclick="if(confirm('清空 KV 全部记录?'))go('/reset')">清空全部</button>
+</div>
+
+<pre id="out">就绪。</pre>
+<p class="sub">开源: <a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></p>
+</div><script>
+const $=id=>document.getElementById(id);
+$('key').value=localStorage.getItem('k')||'';
+$('key').oninput=e=>localStorage.setItem('k',e.target.value);
+const out=$('out');
+function qs(o){const p=[];for(const k in o){const v=o[k];if(v!==''&&v!=null)p.push(k+'='+encodeURIComponent(v))}const kk=$('key').value.trim();if(kk)p.push('key='+encodeURIComponent(kk));return p.length?'?'+p.join('&'):''}
+async function call(path){out.textContent='请求中…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='出错: '+e}}
+function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(kk?'key='+encodeURIComponent(kk):''))}
+function reg(){call('/register'+qs({countries:$('countries').value.trim(),ipmode:$('ipmode').value,limit:$('limit').value.trim(),cores:$('cores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),cpu:$('cpu').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),force:$('force').checked?'1':''}))}
+function setup(){call('/setup'+qs({tokens:$('tokens').value.trim()}))}
+function rm(){const c=$('rmc').value.trim();if(!c)return;call('/remove'+qs({countries:c}))}
+async function refresh(){try{const r=await fetch('/status');const t=await r.text();const m=t.match(/\\d+/);$('cnt').textContent=m?'· 已注册 '+m[0]+' 个':''}catch(e){}}
+refresh();
+</script></body></html>`;
+
 
 // 自调度扇出: dispatcher 只发几个"子请求"到自己的 /report(每个分片 ≤ shardSize 个探针)。
 // 每个子请求是一次【独立的 Worker 调用】,各自享有独立的 50 子请求额度,
@@ -364,6 +447,8 @@ async function handle(request, env, ctx) {
   const gated = (p) => c.accessKey && url.searchParams.get("key") !== c.accessKey && ["/register", "/setup", "/remove", "/reset"].includes(p);
 
   if (!env.KOMARI_KV) return txt("❌ 未绑定 KV 命名空间 KOMARI_KV, 见部署说明", 500);
+  // 首页返回可视化控制台(GET / 且非 report 调用)
+  if (path === "/" && request.method === "GET") return html(UI);
   if (gated(path)) return txt("❌ 需要正确的 ?key=", 403);
 
   try {
@@ -394,7 +479,7 @@ async function handle(request, env, ctx) {
         `KV 内合计: ${r.total}` + (r.failed.length ? `\n失败:\n` + r.failed.join("\n") : ""));
     }
 
-    if (path === "/report" || path === "/") {
+    if (path === "/report") {
       if (!c.server) return txt("❌ 缺少 server(URL 参数或 KOMARI_SERVER)", 400);
       const r = await keepAlive(env, c, {
         offset: parseInt(url.searchParams.get("offset") || "0", 10),
