@@ -4,8 +4,8 @@
 伪装成全球 ~200 个国家/地区，把面板地图点满。
 
 - 直接讲 Komari 的 HTTP JSON-RPC 协议，**不需要 protobuf / 不需要跑官方 agent**。
-- 每个探针按 token 生成一套**稳定的真实感配置**（CPU 型号 / 内存 / 磁盘固定，使用率 / 负载 / 流量浮动，累计流量随运行时间增长）。
-- `ipv4` 填保留地址 `192.0.2.1`（GeoIP 无法定位）+ 直接塞 `region` 国旗，
+- 每个探针按 token 生成一套**稳定的真实感配置**（CPU 型号 / 内存 / 磁盘 / IP 固定，使用率 / 负载 / 网络自然浮动，累计流量随运行时间增长）。
+- IP 默认随机且**不可被 GeoIP 定位**（v4 用 CGNAT `100.64/10`、v6 用 `2001:db8::`），再直接塞 `region` 国旗，
   所以**不用关面板 GeoIP，也不影响你真实的服务器**。
 
 > ⚠️ 这些数字都是编造的，不是真实机器信息，仅用于"点亮地图"这类展示。
@@ -23,7 +23,26 @@
    - `ACCESS_KEY` = 可选口令（Secret，保护 `/register /setup /reset`）
    - `SELF_URL` = 本 Worker 的公开地址（如 `https://xxx.workers.dev`）。**免费版想带 200 个必填**，见下方"免费版"。
    - `SHARD_SIZE` = 每分片探针数（可选，默认 40，免费版 ≤45）
-5. **加定时器**：Settings → Triggers → Cron Triggers → `* * * * *`（每分钟）。代码内部跑 2 轮、隔 30s，盖住 Komari 的 35s 在线判定。
+5. **加定时器**：Settings → Triggers → Cron Triggers → `* * * * *`（每分钟）。代码内部按 `CRON_ROUNDS`/`CRON_GAP` 多轮上报，盖住 Komari 的 35s 在线判定。
+
+## 环境变量总览
+
+在 Worker → **Settings → Variables and Secrets** 里设置。
+
+| 变量 | 类型 | 必填 | 作用 |
+|---|---|---|---|
+| `KOMARI_KV` | **KV 绑定** | ✅ | KV 命名空间绑定（不是普通变量），存探针 uuid/token/画像 |
+| `KOMARI_SERVER` | Plaintext | ✅ | 面板地址，如 `https://komari.example.com` |
+| `KOMARI_ADKEY` | Secret | 走 /register 时 | 自动发现密钥（≥12 位，面板后台设置里） |
+| `ACCESS_KEY` | Secret | 可选 | 保护 `/register /setup /reset`，设了访问要带 `?key=` |
+| `SELF_URL` | Plaintext | 高频/多探针 | 本 Worker 公开地址，设了才开「扇出」（绕开单次 50 子请求上限） |
+| `SHARD_SIZE` | Plaintext | 可选 | 每分片探针数，默认 40（免费版 ≤45） |
+| `CRON_ROUNDS` | Plaintext | 可选 | 每次 cron 触发内部上报轮数，默认 2；越大越频繁 |
+| `CRON_GAP` | Plaintext | 可选 | 每轮间隔秒，默认 30；`ROUNDS×GAP≈60` 且 ≤~50 |
+
+**机器画像默认值**（不设=每台随机；设了=所有探针统一用）：
+`SPEC_CPU` `SPEC_CORES` `SPEC_PCORES` `SPEC_MEM` `SPEC_SWAP` `SPEC_DISK` `SPEC_ARCH` `SPEC_OS` `SPEC_VIRT` `SPEC_GPU` `SPEC_KERNEL` `SPEC_IP4` `SPEC_IP6` `SPEC_IPMODE`（内存/磁盘/交换单位 GB）。
+
 
 
 
@@ -42,7 +61,38 @@
 /setup?tokens=你的token:US,另一个token:JP,第三个:AQ
 ```
 
-其它路由：`/status` 看进度、`/report` 手动保活、`/reset` 清空记录（不删面板上的探针）。
+其它路由：`/status` 看进度、`/report` 手动保活、`/drive` 手动触发一次扇出、`/reset` 清空记录（不删面板上的探针）。
+
+### /register 用法与示例
+
+- 一次最多建 `limit` 个（默认 20，防超子请求上限）；国家多了就**多刷几次**同一条链接（幂等，会接着建没建完的）。
+- 不带 `countries=` 就注册内置的 ~200 个国家；带了就只建列出的。
+- 没设 `ACCESS_KEY` 就去掉 `&key=...`。
+
+```bash
+# 全部 ~200 个国家(各一个), 刷到"全部完成"
+/register?key=你的口令
+
+# 只挑几个国家
+/register?key=你的口令&countries=US,JP,DE,GB,FR,AQ
+
+# 挑国家 + 指定配置(所有新建的都用这套)
+/register?key=你的口令&countries=US,JP&cpu=AMD%20EPYC%209654&cores=4&mem=8&ipmode=both
+```
+
+### 重复国家（同一国家挂多个）
+
+默认 `/register` 幂等——已建过的国家会跳过。想故意开重复（比如 3 个都挂美国），加 **`&force=1`**，
+并可在 `countries=` 里把同一国家写多次：
+
+```bash
+# 3 个美国 + 2 个香港(各自独立 token, 画像/IP 各不相同, 不穿帮)
+/register?key=你的口令&countries=US,US,US,HK,HK&force=1
+
+# 或反复调这条, 每调一次就多一个美国
+/register?key=你的口令&countries=US&force=1
+```
+
 
 ## 自定义配置（可选，不填=每台随机）
 
