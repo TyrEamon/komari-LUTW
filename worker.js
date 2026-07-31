@@ -289,19 +289,25 @@ async function doSetup(env, c, pairs, opts = {}) {
 }
 
 async function keepAlive(env, c, opts) {
-
   let agents = await loadAgents(env);
   if (opts.offset || opts.limit) agents = agents.slice(opts.offset, opts.limit ? opts.offset + opts.limit : undefined);
   const rounds = Math.max(1, opts.rounds), gap = Math.max(0, opts.gap) * 1000;
+  const spread = Math.max(0, opts.spread || 0) * 1000;   // 错开窗口(秒): 让 N 个探针不在同一刻上报
   let ok = 0, fail = 0;
   for (let i = 0; i < rounds; i++) {
-    const results = await Promise.allSettled(
-      agents.map((a) => komariRpc(c.server, a.token, "agent.report",
-        { report: reportPayload({ ...buildProfile(a.token), ...(a.p || {}) }, a.boot) }, `r${Date.now()}`))
-    );
+    const start = Date.now();
+    const results = await Promise.allSettled(agents.map(async (a) => {
+      if (spread) {
+        // 每个探针有稳定的相位(按 token 派生)+ 少量随机抖动 => 像各自独立的定时器, 时间戳散开
+        const phase = (hash32(a.token) % 10000) / 10000;
+        await sleep(phase * spread + Math.random() * spread * 0.2);
+      }
+      return komariRpc(c.server, a.token, "agent.report",
+        { report: reportPayload({ ...buildProfile(a.token), ...(a.p || {}) }, a.boot) }, `r${Date.now()}`);
+    }));
     ok = results.filter((r) => r.status === "fulfilled").length;
     fail = results.length - ok;
-    if (i < rounds - 1) await sleep(gap);
+    if (i < rounds - 1) await sleep(Math.max(0, gap - (Date.now() - start)));
   }
   return { online: ok, failed: fail, count: agents.length, rounds };
 }
@@ -319,9 +325,11 @@ async function dispatch(env, selfUrl, opts) {
   for (let o = 0; o < n; o += size) offsets.push(o);
   const key = env.ACCESS_KEY ? `&key=${encodeURIComponent(env.ACCESS_KEY)}` : "";
   for (let i = 0; i < rounds; i++) {
+    const start = Date.now();
+    // spread=gap: 让每个分片把这批探针的上报错开到整个间隔内, 时间戳不再整齐划一
     await Promise.allSettled(offsets.map((o) =>
-      fetch(`${selfUrl}/report?offset=${o}&limit=${size}&rounds=1${key}`)));
-    if (i < rounds - 1) await sleep(gap);
+      fetch(`${selfUrl}/report?offset=${o}&limit=${size}&rounds=1&spread=${opts.gap}${key}`)));
+    if (i < rounds - 1) await sleep(Math.max(0, gap - (Date.now() - start)));
   }
   return { shards: offsets.length, total: n };
 }
@@ -371,6 +379,7 @@ async function handle(request, env, ctx) {
         limit: parseInt(url.searchParams.get("limit") || "0", 10),
         rounds: parseInt(url.searchParams.get("rounds") || "1", 10),
         gap: parseInt(url.searchParams.get("gap") || "30", 10),
+        spread: parseInt(url.searchParams.get("spread") || "0", 10),
       });
       return txt(`✅ 保活完成 在线 ${r.online}/${r.count}（${r.rounds} 轮）` + (r.failed ? ` 失败 ${r.failed}` : ""));
     }
@@ -416,7 +425,7 @@ export default {
       ctx.waitUntil(dispatch(env, selfUrl, { shardSize: parseInt(env.SHARD_SIZE || "40", 10), rounds, gap }));
     } else {
       const c = { server: env.KOMARI_SERVER.replace(/\/+$/, "") };
-      ctx.waitUntil(keepAlive(env, c, { offset: 0, limit: 0, rounds, gap }));
+      ctx.waitUntil(keepAlive(env, c, { offset: 0, limit: 0, rounds, gap, spread: gap }));
     }
   },
 
