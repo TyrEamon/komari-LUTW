@@ -154,13 +154,13 @@ function buildProfile(token, ov = {}) {
     memUsedFrac: 0.2 + rng() * 0.45,                // 内存基线占用比
     diskUsedFrac: 0.15 + rng() * 0.5,               // 磁盘占用比(基本不变)
     procBase: Math.floor(40 + rng() * 160),
-    // 振荡参数: 让活值按时间平滑起伏(而非每次乱跳), 每台探针周期/相位都不同
-    // 设计: 网络周期短(变化快), CPU/内存周期长(变化慢) —— 满足"网络快、其它慢"
-    cpuBase: 5 + rng() * 15, cpuAmp: 6 + rng() * 16,
-    pA: 90 + rng() * 120, pB: 400 + rng() * 600,    // CPU 主/次周期(秒), 慢
+    // 振荡参数: 按时间平滑起伏, 每台探针周期/相位都不同。
+    // 网络周期最短(最灵动); CPU/内存中等周期 => 每次上报都看得见自然上下波动。
+    cpuBase: 5 + rng() * 18, cpuAmp: 10 + rng() * 26,
+    pA: 20 + rng() * 30, pB: 120 + rng() * 200,     // CPU 主/次周期(秒), 中等
     phCpu: rng() * 6.283, phNet: rng() * 6.283, phMem: rng() * 6.283,
     pNet: 3 + rng() * 6,                            // 网络周期(秒), 快: 3~9s
-    pMem: 600 + rng() * 1200,                       // 内存漂移周期, 很慢
+    pMem: 60 + rng() * 140,                         // 内存漂移周期, 中速(看得见)
   };
 }
 
@@ -200,19 +200,19 @@ function basicInfo(cc, p) {
   };
 }
 
-// 活值: 按时间起伏。网络变化快(短周期+大噪声+频繁突发); CPU/内存/负载变化慢(长周期+小噪声)。
+// 活值: 按时间起伏。网络最灵动(短周期+大噪声+突发); CPU/内存/负载中速自然波动(每次上报都看得见)。
 function reportPayload(p, boot) {
   const t = Date.now() / 1000;
   const uptime = Math.max(60, Math.floor(t - (boot || t)));
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const noise = (a) => (Math.random() - 0.5) * a;
-  // CPU: 慢速双正弦 + 小噪声, 偶发尖峰
+  // CPU: 中速双正弦 + 噪声, 偶发尖峰
   let usage = p.cpuBase + p.cpuAmp * 0.6 * Math.sin(t / p.pA + p.phCpu)
-    + p.cpuAmp * 0.4 * Math.sin(t / p.pB + p.phCpu * 1.7) + noise(2.5);
-  if (Math.random() < 0.015) usage += 20 + Math.random() * 45;   // 偶发尖峰
+    + p.cpuAmp * 0.4 * Math.sin(t / p.pB + p.phCpu * 1.7) + noise(3.5);
+  if (Math.random() < 0.02) usage += 18 + Math.random() * 50;    // 偶发尖峰
   usage = +clamp(usage, 0.3, 99).toFixed(2);
-  // 内存: 很慢地漂移; 磁盘: 几乎不动
-  const memFrac = clamp(p.memUsedFrac + 0.06 * Math.sin(t / p.pMem + p.phMem) + noise(0.006), 0.05, 0.95);
+  // 内存: 中速漂移(看得见); 磁盘: 几乎不动(真机磁盘本就不怎么变)
+  const memFrac = clamp(p.memUsedFrac + 0.09 * Math.sin(t / p.pMem + p.phMem) + noise(0.012), 0.05, 0.95);
   const diskFrac = clamp(p.diskUsedFrac + noise(0.0015), 0.02, 0.98);
   // 网络实时: 短周期波 + 大噪声 + 频繁突发 => 每次采样都明显不同, 看着"活"
   const fast = 0.5 + 0.5 * Math.sin(t / p.pNet + p.phNet);
