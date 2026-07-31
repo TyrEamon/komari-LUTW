@@ -319,19 +319,28 @@ const txt = (s, status = 200) => new Response(s, { status, headers: { "content-t
 // 于是免费版(单次 50 子请求上限)也能靠多个分片凑够 200+ 个探针。
 async function dispatch(env, selfUrl, opts) {
   const n = (await loadAgents(env)).length;
-  if (!n) return { shards: 0, total: 0 };
+  if (!n) return { shards: 0, total: 0, ok: 0, sample: "无探针" };
   const size = Math.max(1, opts.shardSize), rounds = Math.max(1, opts.rounds), gap = Math.max(0, opts.gap) * 1000;
   const offsets = [];
   for (let o = 0; o < n; o += size) offsets.push(o);
   const key = env.ACCESS_KEY ? `&key=${encodeURIComponent(env.ACCESS_KEY)}` : "";
+  let ok = 0, sample = "";
   for (let i = 0; i < rounds; i++) {
     const start = Date.now();
     // spread=gap: 让每个分片把这批探针的上报错开到整个间隔内, 时间戳不再整齐划一
-    await Promise.allSettled(offsets.map((o) =>
+    const res = await Promise.allSettled(offsets.map((o) =>
       fetch(`${selfUrl}/report?offset=${o}&limit=${size}&rounds=1&spread=${opts.gap}${key}`)));
+    if (i === 0) { // 首轮记录诊断: 自引用子请求到底成没成
+      for (const r of res) {
+        if (r.status === "fulfilled") {
+          if (r.value.ok) { ok++; if (!sample) sample = (await r.value.text()).slice(0, 70); }
+          else if (!sample) sample = "HTTP " + r.value.status;
+        } else if (!sample) sample = "fetch失败: " + String(r.reason).slice(0, 90);
+      }
+    }
     if (i < rounds - 1) await sleep(Math.max(0, gap - (Date.now() - start)));
   }
-  return { shards: offsets.length, total: n };
+  return { shards: offsets.length, total: n, ok, sample };
 }
 
 async function handle(request, env, ctx) {
@@ -392,7 +401,7 @@ async function handle(request, env, ctx) {
         rounds: parseInt(url.searchParams.get("rounds") || env.CRON_ROUNDS || "2", 10),
         gap: parseInt(url.searchParams.get("gap") || env.CRON_GAP || "30", 10),
       });
-      return txt(`✅ 扇出完成: ${r.shards} 个分片覆盖 ${r.total} 个探针`);
+      return txt(`✅ 扇出完成: ${r.shards} 个分片覆盖 ${r.total} 个探针\n首轮成功分片: ${r.ok}/${r.shards}\n分片返回: ${r.sample}`);
     }
 
     if (path === "/status") {
