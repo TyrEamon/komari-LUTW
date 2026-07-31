@@ -352,7 +352,7 @@ async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const c = cfg(url, env);
   const path = url.pathname.replace(/\/+$/, "") || "/";
-  const gated = (p) => c.accessKey && url.searchParams.get("key") !== c.accessKey && ["/register", "/setup", "/reset"].includes(p);
+  const gated = (p) => c.accessKey && url.searchParams.get("key") !== c.accessKey && ["/register", "/setup", "/remove", "/reset"].includes(p);
 
   if (!env.KOMARI_KV) return txt("❌ 未绑定 KV 命名空间 KOMARI_KV, 见部署说明", 500);
   if (gated(path)) return txt("❌ 需要正确的 ?key=", 403);
@@ -413,12 +413,25 @@ async function handle(request, env, ctx) {
       return txt(`已注册 ${agents.length} 个探针:\n` + agents.map((a) => a.country + flagEmoji(a.country)).join(" "));
     }
 
+    if (path === "/remove") {
+      const cc = url.searchParams.get("countries");
+      const tk = url.searchParams.get("tokens");
+      if (!cc && !tk) return txt("❌ 用法: /remove?countries=US,JP  或  /remove?tokens=xxx,yyy", 400);
+      const ccSet = new Set((cc ? cc.split(",") : []).map((x) => x.trim().toUpperCase()).filter(Boolean));
+      const tkSet = new Set((tk ? tk.split(",") : []).map((x) => x.trim()).filter(Boolean));
+      const agents = await loadAgents(env);
+      const kept = agents.filter((a) => !ccSet.has(a.country) && !tkSet.has(a.token));
+      const removed = agents.length - kept.length;
+      await saveAgents(env, kept);
+      return txt(`✅ 从 KV 移除 ${removed} 个, 剩余 ${kept.length} 个\n(面板上对应探针仍需在后台手动删)`);
+    }
+
     if (path === "/reset") {
       await env.KOMARI_KV.delete(KV_KEY);
       return txt("✅ 已清空 KV 记录（面板上的探针不受影响，需在后台手动删）");
     }
 
-    return txt("komari 点亮全球\n路由: /register(用adkey自动建号)  /setup?tokens=tok:US,...(用已有token)  /report  /drive(扇出保活)  /status  /reset\n先设 KOMARI_SERVER, 二选一注册好探针, 再让 cron 定时打; 免费版设 SELF_URL 走 /drive 扇出");
+    return txt("komari 点亮全球\n路由: /register  /setup?tokens=tok:US  /report  /drive  /status  /remove?countries=US,JP  /reset\n先设 KOMARI_SERVER, 注册好探针, 再让 cron 定时打");
   } catch (e) {
     return txt(`❌ 出错: ${e.message}`, 500);
   }

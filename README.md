@@ -61,7 +61,7 @@
 /setup?tokens=你的token:US,另一个token:JP,第三个:AQ
 ```
 
-其它路由：`/status` 看进度、`/report` 手动保活、`/drive` 手动触发一次扇出、`/reset` 清空记录（不删面板上的探针）。
+其它路由：`/status` 看进度、`/report` 手动保活、`/drive` 手动触发一次扇出、`/remove?countries=US,JP` 从 KV 移除指定国家（面板仍需手动删）、`/reset` 清空记录。
 
 ### /register 用法与示例
 
