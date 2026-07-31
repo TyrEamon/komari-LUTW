@@ -324,13 +324,17 @@ async function dispatch(env, selfUrl, opts) {
   const offsets = [];
   for (let o = 0; o < n; o += size) offsets.push(o);
   const key = env.ACCESS_KEY ? `&key=${encodeURIComponent(env.ACCESS_KEY)}` : "";
+  // 优先用 Service Binding(SELF, 绑定到本 worker) —— workers.dev 自请求会被 CF 404,
+  // 服务绑定则在内部直接再起一个实例, 不走公网、不会 404。没绑定才退回全局 fetch。
+  const base = (selfUrl || "https://self.local").replace(/\/+$/, "");
+  const call = (path) => env.SELF ? env.SELF.fetch(new Request(base + path)) : fetch(base + path);
   let ok = 0, sample = "";
   for (let i = 0; i < rounds; i++) {
     const start = Date.now();
     // spread=gap: 让每个分片把这批探针的上报错开到整个间隔内, 时间戳不再整齐划一
     const res = await Promise.allSettled(offsets.map((o) =>
-      fetch(`${selfUrl}/report?offset=${o}&limit=${size}&rounds=1&spread=${opts.gap}${key}`)));
-    if (i === 0) { // 首轮记录诊断: 自引用子请求到底成没成
+      call(`/report?offset=${o}&limit=${size}&rounds=1&spread=${opts.gap}${key}`)));
+    if (i === 0) { // 首轮记录诊断
       for (const r of res) {
         if (r.status === "fulfilled") {
           if (r.value.ok) { ok++; if (!sample) sample = (await r.value.text()).slice(0, 70); }
@@ -340,7 +344,7 @@ async function dispatch(env, selfUrl, opts) {
     }
     if (i < rounds - 1) await sleep(Math.max(0, gap - (Date.now() - start)));
   }
-  return { shards: offsets.length, total: n, ok, sample };
+  return { shards: offsets.length, total: n, ok, sample, via: env.SELF ? "binding" : "fetch" };
 }
 
 async function handle(request, env, ctx) {
@@ -401,7 +405,7 @@ async function handle(request, env, ctx) {
         rounds: parseInt(url.searchParams.get("rounds") || env.CRON_ROUNDS || "2", 10),
         gap: parseInt(url.searchParams.get("gap") || env.CRON_GAP || "30", 10),
       });
-      return txt(`✅ 扇出完成: ${r.shards} 个分片覆盖 ${r.total} 个探针\n首轮成功分片: ${r.ok}/${r.shards}\n分片返回: ${r.sample}`);
+      return txt(`✅ 扇出完成: ${r.shards} 个分片覆盖 ${r.total} 个探针\n方式: ${r.via} | 首轮成功分片: ${r.ok}/${r.shards}\n分片返回: ${r.sample}`);
     }
 
     if (path === "/status") {
@@ -430,7 +434,7 @@ export default {
     if (!env.KOMARI_KV || !env.KOMARI_SERVER) return;
     const selfUrl = (env.SELF_URL || "").replace(/\/+$/, "");
     const rounds = parseInt(env.CRON_ROUNDS || "2", 10), gap = parseInt(env.CRON_GAP || "30", 10);
-    if (selfUrl) {
+    if (env.SELF || selfUrl) {
       ctx.waitUntil(dispatch(env, selfUrl, { shardSize: parseInt(env.SHARD_SIZE || "40", 10), rounds, gap }));
     } else {
       const c = { server: env.KOMARI_SERVER.replace(/\/+$/, "") };
