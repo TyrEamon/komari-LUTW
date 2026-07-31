@@ -8,12 +8,18 @@
  * 环境变量(可选，也可用 URL 参数覆盖):
  *   KOMARI_SERVER  面板地址, 如 https://komari.example.com
  *   KOMARI_ADKEY   自动发现密钥(注册时用, ≥12 位)
- *   ACCESS_KEY     保护 /register /reset 的口令(可选, 设了就必须带 ?key=)
+ *   ACCESS_KEY     保护 /register /setup /reset 的口令(可选, 设了就必须带 ?key=)
+ *   SELF_URL       本 worker 的公开地址(如 https://xxx.workers.dev)。设了 cron 就走
+ *                  "扇出"模式: 只发几个子请求到自己的 /report 分片, 每个分片是独立调用、
+ *                  各有独立的 50 子请求额度 —— 于是【免费版也能保活 200+ 个】。不设=直接保活。
+ *   SHARD_SIZE     每个分片的探针数(默认 40, 免费版务必 ≤45)
+ *   CRON_ROUNDS    每次触发内部轮数(默认 2)   CRON_GAP  轮间隔秒(默认 30)
  *
  * 路由:
  *   GET /register?limit=20            用 adkey 自动建号并注册(幂等), 一次最多 limit 个
  *   GET /setup?tokens=tok:US,tok2:JP  用你已有的客户端 token 接入(不需要 adkey)
- *   GET /report?rounds=2&gap=30       保活: 给已注册探针发 report(默认全部)
+ *   GET /report?offset=0&limit=40     保活一个分片(默认全部); cron/扇出会自动带 offset/limit
+ *   GET /drive?shard=40               手动触发一次扇出保活(等价于 cron 干的事)
  *   GET /status                       看已注册了多少、都是哪些国家
  *   GET /reset                        清空 KV 里的记录(不会删面板上的探针)
  *
@@ -265,7 +271,26 @@ async function keepAlive(env, c, opts) {
 
 const txt = (s, status = 200) => new Response(s, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 
+// 自调度扇出: dispatcher 只发几个"子请求"到自己的 /report(每个分片 ≤ shardSize 个探针)。
+// 每个子请求是一次【独立的 Worker 调用】,各自享有独立的 50 子请求额度,
+// 于是免费版(单次 50 子请求上限)也能靠多个分片凑够 200+ 个探针。
+async function dispatch(env, selfUrl, opts) {
+  const n = (await loadAgents(env)).length;
+  if (!n) return { shards: 0, total: 0 };
+  const size = Math.max(1, opts.shardSize), rounds = Math.max(1, opts.rounds), gap = Math.max(0, opts.gap) * 1000;
+  const offsets = [];
+  for (let o = 0; o < n; o += size) offsets.push(o);
+  const key = env.ACCESS_KEY ? `&key=${encodeURIComponent(env.ACCESS_KEY)}` : "";
+  for (let i = 0; i < rounds; i++) {
+    await Promise.allSettled(offsets.map((o) =>
+      fetch(`${selfUrl}/report?offset=${o}&limit=${size}&rounds=1${key}`)));
+    if (i < rounds - 1) await sleep(gap);
+  }
+  return { shards: offsets.length, total: n };
+}
+
 async function handle(request, env, ctx) {
+
   const url = new URL(request.url);
   const c = cfg(url, env);
   const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -313,6 +338,17 @@ async function handle(request, env, ctx) {
       return txt(`✅ 保活完成 在线 ${r.online}/${r.count}（${r.rounds} 轮）` + (r.failed ? ` 失败 ${r.failed}` : ""));
     }
 
+    if (path === "/drive") {
+      // 扇出保活: 手动触发一次(等价于 cron 做的事), selfUrl 取当前访问地址
+      const selfUrl = (env.SELF_URL || url.origin).replace(/\/+$/, "");
+      const r = await dispatch(env, selfUrl, {
+        shardSize: parseInt(url.searchParams.get("shard") || env.SHARD_SIZE || "40", 10),
+        rounds: parseInt(url.searchParams.get("rounds") || env.CRON_ROUNDS || "2", 10),
+        gap: parseInt(url.searchParams.get("gap") || env.CRON_GAP || "30", 10),
+      });
+      return txt(`✅ 扇出完成: ${r.shards} 个分片覆盖 ${r.total} 个探针`);
+    }
+
     if (path === "/status") {
       const agents = await loadAgents(env);
       return txt(`已注册 ${agents.length} 个探针:\n` + agents.map((a) => a.country + flagEmoji(a.country)).join(" "));
@@ -323,7 +359,7 @@ async function handle(request, env, ctx) {
       return txt("✅ 已清空 KV 记录（面板上的探针不受影响，需在后台手动删）");
     }
 
-    return txt("komari 点亮全球\n路由: /register(用adkey自动建号)  /setup?tokens=tok:US,...(用已有token)  /report  /status  /reset\n先设 KOMARI_SERVER, 二选一注册好探针, 再让 cron 定时打 /report");
+    return txt("komari 点亮全球\n路由: /register(用adkey自动建号)  /setup?tokens=tok:US,...(用已有token)  /report  /drive(扇出保活)  /status  /reset\n先设 KOMARI_SERVER, 二选一注册好探针, 再让 cron 定时打; 免费版设 SELF_URL 走 /drive 扇出");
   } catch (e) {
     return txt(`❌ 出错: ${e.message}`, 500);
   }
@@ -333,16 +369,20 @@ export default {
   async fetch(request, env, ctx) {
     return handle(request, env, ctx);
   },
-  // Cloudflare Cron Trigger(仅 Workers 支持): 每分钟触发, 内部跑 2 轮间隔 30s 覆盖整分钟
+  // Cloudflare Cron Trigger(每分钟触发)。
+  // 设了 SELF_URL 就走"扇出"(免费版也能带 200+); 没设则直接保活(探针少或付费版够用)。
   async scheduled(event, env, ctx) {
-    const c = { server: (env.KOMARI_SERVER || "").replace(/\/+$/, ""), adkey: env.KOMARI_ADKEY || "" };
-    if (!env.KOMARI_KV || !c.server) return;
-    ctx.waitUntil(keepAlive(env, c, {
-      offset: 0, limit: 0,
-      rounds: parseInt(env.CRON_ROUNDS || "2", 10),
-      gap: parseInt(env.CRON_GAP || "30", 10),
-    }));
+    if (!env.KOMARI_KV || !env.KOMARI_SERVER) return;
+    const selfUrl = (env.SELF_URL || "").replace(/\/+$/, "");
+    const rounds = parseInt(env.CRON_ROUNDS || "2", 10), gap = parseInt(env.CRON_GAP || "30", 10);
+    if (selfUrl) {
+      ctx.waitUntil(dispatch(env, selfUrl, { shardSize: parseInt(env.SHARD_SIZE || "40", 10), rounds, gap }));
+    } else {
+      const c = { server: env.KOMARI_SERVER.replace(/\/+$/, "") };
+      ctx.waitUntil(keepAlive(env, c, { offset: 0, limit: 0, rounds, gap }));
+    }
   },
+
 };
 
 
