@@ -330,77 +330,150 @@ const UI = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <style>
 :root{--bg:#0f1220;--card:#1a1f36;--line:#2a3152;--fg:#e8ebf5;--mut:#8b93b8;--acc:#6c8cff;--ok:#37d67a;--err:#ff6b6b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,"Segoe UI",sans-serif}
-.wrap{max-width:820px;margin:0 auto;padding:20px}
+.wrap{max-width:900px;margin:0 auto;padding:20px}
 h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px;font-size:13px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
 .card h2{font-size:14px;margin:0 0 12px;color:var(--acc)}
 label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
 input,select{width:100%;padding:8px 10px;background:#0d1024;border:1px solid var(--line);border-radius:8px;color:var(--fg);font-size:13px}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
 .chk{display:flex;align-items:center;gap:6px;margin-top:10px}.chk input{width:auto}
 button{cursor:pointer;border:0;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;color:#fff;background:var(--acc);margin:10px 6px 0 0}
-button.g{background:#2a3152}button.r{background:var(--err)}button:active{transform:translateY(1px)}
+button.g{background:#2a3152}button.r{background:var(--err)}button.s{padding:4px 9px;margin:0;font-size:12px}button:active{transform:translateY(1px)}
 pre{background:#0a0c1a;border:1px solid var(--line);border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-all;min-height:40px;margin:14px 0 0;font-size:12px}
-.pill{display:inline-block;background:#0d1024;border:1px solid var(--line);border-radius:20px;padding:3px 10px;margin:2px;font-size:12px}
 small{color:var(--mut)}a{color:var(--acc)}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:500}
+tr:hover td{background:#0d1024}.mono{font-family:ui-monospace,Consolas,monospace}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.tab{background:#0d1024;border:1px solid var(--line);color:var(--mut);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+.tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.hide{display:none}.env{font-family:ui-monospace,monospace;font-size:12px}
+.badge{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;background:#0d1024;border:1px solid var(--line);margin-left:6px}
 </style></head><body><div class="wrap">
 <h1>komari 点亮全球 <small id="cnt"></small></h1>
-<p class="sub">可视化控制台 · 数据全部本地拼接调用本 worker 接口</p>
+<p class="sub">可视化控制台 · 全部操作在本地拼接并调用本 worker 接口</p>
 
 <div class="card"><h2>访问口令</h2>
-<label>ACCESS_KEY（若后台设了才需要，浏览器本地保存）</label>
+<label>ACCESS_KEY（后台设了才需要，浏览器本地保存）</label>
 <input id="key" placeholder="没设就留空" autocomplete="off">
 </div>
 
-<div class="card"><h2>① 注册探针</h2>
-<label>国家代码（逗号分隔；留空=内置 ~200 个；同一国家写多次+勾选重复即可多开）</label>
+<div class="tabs">
+<div class="tab on" data-t="reg">注册</div>
+<div class="tab" data-t="setup">Token 接入</div>
+<div class="tab" data-t="list">探针列表</div>
+<div class="tab" data-t="ops">保活 / 运维</div>
+<div class="tab" data-t="help">环境变量 / 帮助</div>
+</div>
+
+<div class="card pane" id="p-reg"><h2>注册探针（用自动发现密钥自动建号）</h2>
+<label>国家代码（逗号分隔；留空=内置 ~200 个；同一国家写多次+勾选重复可多开）</label>
 <input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
 <div class="row3">
 <div><label>IP 模式</label><select id="ipmode"><option value="">默认(v4)</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
 <div><label>每次数量 limit</label><input id="limit" placeholder="20"></div>
-<div><label>核数 cores</label><input id="cores" placeholder="随机"></div>
+<div><label>固定 IPv4 ip4（可选）</label><input id="ip4" placeholder="随机"></div>
 </div>
-<div class="row3">
+<div class="row4">
+<div><label>核数 cores</label><input id="cores" placeholder="随机"></div>
+<div><label>物理核 pcores</label><input id="pcores" placeholder="随机"></div>
 <div><label>内存 GB</label><input id="mem" placeholder="随机"></div>
 <div><label>磁盘 GB</label><input id="disk" placeholder="随机"></div>
-<div><label>CPU 型号</label><input id="cpu" placeholder="随机"></div>
 </div>
-<div class="row">
-<div><label>下行 KB/s downrate</label><input id="downrate" placeholder="随机(不填=KB级)"></div>
-<div><label>上行 KB/s uprate</label><input id="uprate" placeholder="随机"></div>
+<div class="row4">
+<div><label>交换 GB swap</label><input id="swap" placeholder="随机"></div>
+<div><label>下行 KB/s</label><input id="downrate" placeholder="随机"></div>
+<div><label>上行 KB/s</label><input id="uprate" placeholder="随机"></div>
+<div><label>固定 IPv6 ip6（可选）</label><input id="ip6" placeholder="随机"></div>
+</div>
+<div class="row3">
+<div><label>CPU 型号 cpu</label><input id="cpu" placeholder="随机"></div>
+<div><label>系统 os</label><input id="os" placeholder="随机"></div>
+<div><label>虚拟化 virt</label><input id="virt" placeholder="随机"></div>
+</div>
+<div class="row3">
+<div><label>架构 arch</label><input id="arch" placeholder="随机"></div>
+<div><label>GPU gpu</label><input id="gpu" placeholder="随机/空"></div>
+<div><label>内核 kernel</label><input id="kernel" placeholder="随机"></div>
 </div>
 <label class="chk"><input type="checkbox" id="force"> 允许重复国家 / 覆盖重建 (force)</label>
 <button onclick="reg()">注册 / 继续注册</button>
+<button class="g" onclick="regAll()">一键注册全部 ~200</button>
 </div>
 
-<div class="card"><h2>② 或用已有 token 接入</h2>
-<label>tokens（格式 token:US,token2:JP）</label>
+<div class="card pane hide" id="p-setup"><h2>用已有 token 接入（无需自动发现密钥）</h2>
+<label>tokens（格式 token:US,token2:JP，冒号后是国家代码）</label>
 <input id="tokens" placeholder="Pf8xxxx:US,abcd:JP">
+<small>把 komari 一键部署命令里 -t 后面那串填进来，冒号后跟想挂的国家。可套用上方“注册”表单里的配置项。</small>
 <button onclick="setup()">接入</button>
 </div>
 
-<div class="card"><h2>③ 运维</h2>
-<button class="g" onclick="go('/status')">查看状态</button>
-<button class="g" onclick="go('/drive?rounds=1&gap=0')">立即保活一次</button>
-<label style="margin-top:12px">按国家移除（从 KV，面板仍需手动删）</label>
+<div class="card pane hide" id="p-list"><h2>探针列表 <button class="g s" onclick="loadList()">刷新</button></h2>
+<div id="tbl"><small>点“刷新”加载。</small></div>
+</div>
+
+<div class="card pane hide" id="p-ops"><h2>保活 / 运维</h2>
+<div class="row3">
+<div><label>rounds（轮数）</label><input id="d_rounds" placeholder="1"></div>
+<div><label>gap（间隔秒）</label><input id="d_gap" placeholder="0"></div>
+<div><label>&nbsp;</label><button onclick="drive()">立即保活/扇出一次</button></div>
+</div>
+<button class="g" onclick="go('/status')">查看状态(文本)</button>
+<button class="g" onclick="go('/report')">直连保活一轮</button>
+<hr style="border-color:var(--line);margin:16px 0">
+<label>按国家移除（仅从 KV 移除，面板上仍需手动删）</label>
 <input id="rmc" placeholder="US,JP">
 <button class="r" onclick="rm()">移除这些国家</button>
-<button class="r" onclick="if(confirm('清空 KV 全部记录?'))go('/reset')">清空全部</button>
+<button class="r" onclick="if(confirm('清空 KV 全部记录? 面板探针不受影响'))go('/reset')">清空全部 KV</button>
+</div>
+
+<div class="card pane hide" id="p-help"><h2>环境变量（在 CF 后台 Settings→Variables 设置）</h2>
+<table><tr><th>变量</th><th>作用</th></tr>
+<tr><td class="env">KOMARI_KV</td><td>KV 绑定（必须，存探针）</td></tr>
+<tr><td class="env">KOMARI_SERVER</td><td>面板地址（必须）</td></tr>
+<tr><td class="env">KOMARI_ADKEY</td><td>自动发现密钥（走注册需要）</td></tr>
+<tr><td class="env">ACCESS_KEY</td><td>控制台/写操作口令</td></tr>
+<tr><td class="env">SELF</td><td>Service binding 绑到自身（开扇出，推荐）</td></tr>
+<tr><td class="env">SELF_URL</td><td>本 worker 地址（无 SELF 绑定时的退路）</td></tr>
+<tr><td class="env">SHARD_SIZE</td><td>每分片探针数，默认 40</td></tr>
+<tr><td class="env">CRON_ROUNDS / CRON_GAP</td><td>每分钟上报轮数 / 间隔秒（如 28/2 ≈ 每 2 秒）</td></tr>
+<tr><td class="env">SPEC_*</td><td>画像全局默认：SPEC_CPU/CORES/MEM/DISK/OS/IPMODE/UPRATE… </td></tr>
+</table>
+<p><small>路由：/register /setup /report /drive /status /list /remove /reset。开源：
+<a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></small></p>
 </div>
 
 <pre id="out">就绪。</pre>
-<p class="sub">开源: <a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></p>
 </div><script>
 const $=id=>document.getElementById(id);
 $('key').value=localStorage.getItem('k')||'';
 $('key').oninput=e=>localStorage.setItem('k',e.target.value);
 const out=$('out');
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  document.querySelectorAll('.pane').forEach(p=>p.classList.add('hide'));
+  $('p-'+t.dataset.t).classList.remove('hide');
+  if(t.dataset.t==='list')loadList();
+});
 function qs(o){const p=[];for(const k in o){const v=o[k];if(v!==''&&v!=null)p.push(k+'='+encodeURIComponent(v))}const kk=$('key').value.trim();if(kk)p.push('key='+encodeURIComponent(kk));return p.length?'?'+p.join('&'):''}
 async function call(path){out.textContent='请求中…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='出错: '+e}}
 function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(kk?'key='+encodeURIComponent(kk):''))}
-function reg(){call('/register'+qs({countries:$('countries').value.trim(),ipmode:$('ipmode').value,limit:$('limit').value.trim(),cores:$('cores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),cpu:$('cpu').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),force:$('force').checked?'1':''}))}
-function setup(){call('/setup'+qs({tokens:$('tokens').value.trim()}))}
-function rm(){const c=$('rmc').value.trim();if(!c)return;call('/remove'+qs({countries:c}))}
+function spec(){return{ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
+function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},spec())))}
+function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到“全部完成”'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
+function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim()},spec())))}
+function drive(){go('/drive?rounds='+($('d_rounds').value.trim()||'1')+'&gap='+($('d_gap').value.trim()||'0'))}
+function rm(){const c=$('rmc').value.trim();if(!c)return;if(confirm('从 KV 移除 '+c+' ?'))call('/remove'+qs({countries:c}))}
+function fmtB(b){b=+b;return b>=1073741824?(b/1073741824).toFixed(0)+'G':b?(b/1048576).toFixed(0)+'M':'-'}
+async function loadList(){const box=$('tbl');box.innerHTML='加载中…';try{const r=await fetch('/list');const j=await r.json();
+  if(!j.count){box.innerHTML='<small>还没有探针。去“注册”标签建一些。</small>';return}
+  let h='<table><tr><th>国</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
+  for(const a of j.agents){const ip=a.ipMode==='v6'?a.ip6:(a.ipMode==='both'?a.ip4+' / v6':a.ip4);
+    h+='<tr><td>'+a.flag+' '+a.country+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
+  h+='</table>';box.innerHTML=h;}catch(e){box.innerHTML='加载失败: '+e}}
+function rmTok(tok,cc){if(!confirm('移除 '+cc+' 这一台?'))return;call('/remove'+qs({tokens:tok})).then(loadList)}
 async function refresh(){try{const r=await fetch('/status');const t=await r.text();const m=t.match(/\\d+/);$('cnt').textContent=m?'· 已注册 '+m[0]+' 个':''}catch(e){}}
 refresh();
 </script></body></html>`;
@@ -505,6 +578,22 @@ async function handle(request, env, ctx) {
     if (path === "/status") {
       const agents = await loadAgents(env);
       return txt(`已注册 ${agents.length} 个探针:\n` + agents.map((a) => a.country + flagEmoji(a.country)).join(" "));
+    }
+
+    if (path === "/list") {
+      // 结构化列表(供控制台渲染带删除按钮的探针表)
+      const agents = await loadAgents(env);
+      const list = agents.map((a) => {
+        const p = a.p || {};
+        return {
+          country: a.country, flag: flagEmoji(a.country), token: a.token,
+          ipMode: p.ipMode || "v4", ip4: p.ip4 || "", ip6: p.ip6 || "",
+          cpu: p.cpu_name || "", cores: p.cpu_cores || 0,
+          mem: p.mem_total || 0, disk: p.disk_total || 0, os: p.os || "",
+        };
+      });
+      return new Response(JSON.stringify({ count: list.length, agents: list }),
+        { headers: { "content-type": "application/json; charset=utf-8" } });
     }
 
     if (path === "/remove") {
