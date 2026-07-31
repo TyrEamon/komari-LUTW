@@ -132,6 +132,12 @@ function buildProfile(token, ov = {}) {
   //   v6 用文档段 2001:db8::/32。二者都不会被解析出国家 => 国旗稳。
   const ip4 = ov.ip4 || `100.${64 + Math.floor(rng() * 64)}.${octet()}.${1 + Math.floor(rng() * 254)}`;
   const ip6 = ov.ip6 || `2001:db8:${h16()}:${h16()}:${h16()}::${(1 + Math.floor(rng() * 65534)).toString(16)}`;
+  // ipMode: 默认 v4。设 mix/random 时按 token 稳定地混搭(≈55% 双栈, 40% 仅v4, 5% 仅v6), 更像真实机群。
+  let ipMode = (ov.ipmode || "v4").toLowerCase();
+  if (ipMode === "mix" || ipMode === "random") {
+    const r = (hash32("ipm:" + token) % 1000) / 1000;
+    ipMode = r < 0.55 ? "both" : (r < 0.95 ? "v4" : "v6");
+  }
   return {
     cpu_name: ov.cpu || cp[0],
     arch: ov.arch || cp[1],
@@ -144,7 +150,7 @@ function buildProfile(token, ov = {}) {
     mem_total: ov.mem != null ? ov.mem : pick(rng, MEMS),
     swap_total: ov.swap != null ? ov.swap : pick(rng, [0, 0, 0, 512 * MB, 1 * GB, 2 * GB]),
     disk_total: ov.disk != null ? ov.disk : pick(rng, DISKS),
-    ip4, ip6, ipMode: ov.ipmode || "v4",           // v4 | v6 | both
+    ip4, ip6, ipMode,           // v4 | v6 | both (mix/random 已在上面解析成具体值)
 
     // 以下为"活值"基线(稳定), 让浮动看起来合理
     upRate: Math.floor(1e3 + rng() * 60e3),        // 平均上行 ~1-60 KB/s

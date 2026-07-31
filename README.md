@@ -104,7 +104,7 @@
 | `cores` / `pcores` | 逻辑核 / 物理核 | `4` |
 | `mem` / `swap` / `disk` | 内存 / 交换 / 磁盘（GB） | `8` |
 | `arch` `os` `virt` `gpu` `kernel` | 架构/系统/虚拟化/显卡/内核 | `amd64` |
-| `ipmode` | IP 类型：`v4` / `v6` / `both`（默认 v4） | `both` |
+| `ipmode` | IP 类型：`v4` / `v6` / `both` / `mix`（默认 v4） | `mix` |
 | `ip4` / `ip6` | 固定某个 IP（默认每台随机） | `203.0.113.9` |
 
 例：`/register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160`
