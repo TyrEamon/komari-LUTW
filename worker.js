@@ -144,10 +144,12 @@ function buildProfile(token, ov = {}) {
     diskUsedFrac: 0.15 + rng() * 0.5,               // 磁盘占用比(基本不变)
     procBase: Math.floor(40 + rng() * 160),
     // 振荡参数: 让活值按时间平滑起伏(而非每次乱跳), 每台探针周期/相位都不同
-    cpuBase: 5 + rng() * 16, cpuAmp: 8 + rng() * 22,
-    pA: 45 + rng() * 90, pB: 200 + rng() * 500,     // CPU 主/次周期(秒)
+    // 设计: 网络周期短(变化快), CPU/内存周期长(变化慢) —— 满足"网络快、其它慢"
+    cpuBase: 5 + rng() * 15, cpuAmp: 6 + rng() * 16,
+    pA: 90 + rng() * 120, pB: 400 + rng() * 600,    // CPU 主/次周期(秒), 慢
     phCpu: rng() * 6.283, phNet: rng() * 6.283, phMem: rng() * 6.283,
-    pNet: 25 + rng() * 70, pMem: 300 + rng() * 900,
+    pNet: 3 + rng() * 6,                            // 网络周期(秒), 快: 3~9s
+    pMem: 600 + rng() * 1200,                       // 内存漂移周期, 很慢
   };
 }
 
@@ -181,39 +183,39 @@ function basicInfo(cc, p) {
   };
 }
 
-// 活值: 按时间平滑起伏(正弦叠加+噪声+偶发尖峰), 看起来像真机而非乱跳; 每台曲线都不同
+// 活值: 按时间起伏。网络变化快(短周期+大噪声+频繁突发); CPU/内存/负载变化慢(长周期+小噪声)。
 function reportPayload(p, boot) {
   const t = Date.now() / 1000;
   const uptime = Math.max(60, Math.floor(t - (boot || t)));
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const noise = (a) => (Math.random() - 0.5) * a;
-  // CPU: 双正弦叠加 + 噪声, 偶发尖峰
+  // CPU: 慢速双正弦 + 小噪声, 偶发尖峰
   let usage = p.cpuBase + p.cpuAmp * 0.6 * Math.sin(t / p.pA + p.phCpu)
-    + p.cpuAmp * 0.4 * Math.sin(t / p.pB + p.phCpu * 1.7) + noise(6);
-  if (Math.random() < 0.03) usage += 25 + Math.random() * 55;   // 偶发尖峰
+    + p.cpuAmp * 0.4 * Math.sin(t / p.pB + p.phCpu * 1.7) + noise(2.5);
+  if (Math.random() < 0.015) usage += 20 + Math.random() * 45;   // 偶发尖峰
   usage = +clamp(usage, 0.3, 99).toFixed(2);
-  // 内存: 缓慢漂移; 磁盘: 基本不变
-  const memFrac = clamp(p.memUsedFrac + 0.08 * Math.sin(t / p.pMem + p.phMem) + noise(0.02), 0.05, 0.95);
-  const diskFrac = clamp(p.diskUsedFrac + noise(0.004), 0.02, 0.98);
-  // 网络实时: 正弦包络 + 噪声, 偶发突发
-  const nf = 0.35 + 0.5 * Math.sin(t / p.pNet + p.phNet);
-  let up = p.upRate * nf + noise(p.upRate * 0.5);
-  let down = p.downRate * nf + noise(p.downRate * 0.5);
-  if (Math.random() < 0.05) { up *= 2 + Math.random() * 4; down *= 2 + Math.random() * 5; }
-  const load1 = +clamp(usage / 100 * p.cpu_cores * (0.8 + Math.random() * 0.5), 0, p.cpu_cores * 2.5).toFixed(2);
+  // 内存: 很慢地漂移; 磁盘: 几乎不动
+  const memFrac = clamp(p.memUsedFrac + 0.06 * Math.sin(t / p.pMem + p.phMem) + noise(0.006), 0.05, 0.95);
+  const diskFrac = clamp(p.diskUsedFrac + noise(0.0015), 0.02, 0.98);
+  // 网络实时: 短周期波 + 大噪声 + 频繁突发 => 每次采样都明显不同, 看着"活"
+  const fast = 0.5 + 0.5 * Math.sin(t / p.pNet + p.phNet);
+  let up = p.upRate * (0.3 + 1.1 * fast) + noise(p.upRate * 1.3);
+  let down = p.downRate * (0.3 + 1.1 * fast) + noise(p.downRate * 1.3);
+  if (Math.random() < 0.12) { up *= 1.5 + Math.random() * 4; down *= 1.5 + Math.random() * 5; }
+  const load1 = +clamp(usage / 100 * p.cpu_cores * (0.85 + Math.random() * 0.3), 0, p.cpu_cores * 2.5).toFixed(2);
   return {
     cpu: { name: p.cpu_name, cores: p.cpu_cores, arch: p.arch, usage },
     ram: { total: p.mem_total, used: Math.floor(p.mem_total * memFrac) },
     swap: { total: p.swap_total, used: p.swap_total ? Math.floor(p.swap_total * clamp(0.1 + 0.2 * Math.sin(t / p.pMem), 0, 0.6)) : 0 },
-    load: { load1, load5: +(load1 * (0.75 + Math.random() * 0.15)).toFixed(2), load15: +(load1 * (0.55 + Math.random() * 0.15)).toFixed(2) },
+    load: { load1, load5: +(load1 * (0.8 + Math.random() * 0.1)).toFixed(2), load15: +(load1 * (0.6 + Math.random() * 0.1)).toFixed(2) },
     disk: { total: p.disk_total, used: Math.floor(p.disk_total * diskFrac) },
     network: {
       up: Math.max(0, Math.floor(up)), down: Math.max(0, Math.floor(down)),
       totalUp: p.baseUp + Math.floor(uptime * p.upRate * 0.6),
       totalDown: p.baseDown + Math.floor(uptime * p.downRate * 0.6),
     },
-    connections: { tcp: Math.floor(8 + Math.abs(Math.sin(t / p.pNet + p.phNet)) * 60 + Math.random() * 20), udp: Math.floor(Math.random() * 15) },
-    uptime, process: Math.floor(p.procBase + 12 * Math.sin(t / p.pB + p.phMem) + noise(6)), message: "",
+    connections: { tcp: Math.floor(8 + fast * 60 + Math.random() * 25), udp: Math.floor(Math.random() * 15) },
+    uptime, process: Math.floor(p.procBase + 12 * Math.sin(t / p.pB + p.phMem) + noise(4)), message: "",
   };
 }
 
