@@ -152,9 +152,9 @@ function buildProfile(token, ov = {}) {
     disk_total: ov.disk != null ? ov.disk : pick(rng, DISKS),
     ip4, ip6, ipMode,           // v4 | v6 | both (mix/random 已在上面解析成具体值)
 
-    // 以下为"活值"基线(稳定), 让浮动看起来合理
-    upRate: Math.floor(1e3 + rng() * 60e3),        // 平均上行 ~1-60 KB/s
-    downRate: Math.floor(2e3 + rng() * 180e3),      // 平均下行 ~2-180 KB/s
+    // 以下为"活值"基线(稳定), 让浮动看起来合理; uprate/downrate 可自定义(KB/s), 不填=随机
+    upRate: ov.uprate != null ? ov.uprate : Math.floor(1e3 + rng() * 60e3),   // 平均上行
+    downRate: ov.downrate != null ? ov.downrate : Math.floor(2e3 + rng() * 180e3), // 平均下行
     baseUp: Math.floor(rng() * 20) * GB,            // 累计流量基数
     baseDown: Math.floor(rng() * 40) * GB,
     memUsedFrac: 0.2 + rng() * 0.45,                // 内存基线占用比
@@ -175,6 +175,7 @@ function overrides(url, env) {
   const q = (k) => { const v = url.searchParams.get(k); return v == null || v === "" ? undefined : v; };
   const num = (v) => v == null ? undefined : parseInt(v, 10);
   const bytes = (v) => v == null ? undefined : Math.round(parseFloat(v) * GB); // 单位: GB
+  const kbps = (v) => v == null ? undefined : Math.round(parseFloat(v) * 1024); // 单位: KB/s -> B/s
   return {
     cpu: q("cpu") ?? env.SPEC_CPU,
     cores: num(q("cores") ?? env.SPEC_CORES),
@@ -187,6 +188,8 @@ function overrides(url, env) {
     mem: bytes(q("mem") ?? env.SPEC_MEM),
     swap: bytes(q("swap") ?? env.SPEC_SWAP),
     disk: bytes(q("disk") ?? env.SPEC_DISK),
+    uprate: kbps(q("uprate") ?? env.SPEC_UPRATE),     // 平均上行 KB/s(不填=随机)
+    downrate: kbps(q("downrate") ?? env.SPEC_DOWNRATE), // 平均下行 KB/s
     ip4: q("ip4") ?? env.SPEC_IP4,                 // 固定某个 v4(不填=随机 CGNAT)
     ip6: q("ip6") ?? env.SPEC_IP6,                 // 固定某个 v6(不填=随机文档段)
     ipmode: ((q("ipmode") ?? env.SPEC_IPMODE) || "").toLowerCase() || undefined, // v4|v6|both

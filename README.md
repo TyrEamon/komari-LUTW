@@ -103,6 +103,7 @@
 | `cpu` | CPU 型号 | `AMD%20EPYC%209654` |
 | `cores` / `pcores` | 逻辑核 / 物理核 | `4` |
 | `mem` / `swap` / `disk` | 内存 / 交换 / 磁盘（GB） | `8` |
+| `uprate` / `downrate` | 平均上行/下行速率（KB/s，不填=随机 ~KB级） | `500` |
 | `arch` `os` `virt` `gpu` `kernel` | 架构/系统/虚拟化/显卡/内核 | `amd64` |
 | `ipmode` | IP 类型：`v4` / `v6` / `both` / `mix`（默认 v4） | `mix` |
 | `ip4` / `ip6` | 固定某个 IP（默认每台随机） | `203.0.113.9` |
