@@ -143,6 +143,11 @@ function buildProfile(token, ov = {}) {
     memUsedFrac: 0.2 + rng() * 0.45,                // 内存基线占用比
     diskUsedFrac: 0.15 + rng() * 0.5,               // 磁盘占用比(基本不变)
     procBase: Math.floor(40 + rng() * 160),
+    // 振荡参数: 让活值按时间平滑起伏(而非每次乱跳), 每台探针周期/相位都不同
+    cpuBase: 5 + rng() * 16, cpuAmp: 8 + rng() * 22,
+    pA: 45 + rng() * 90, pB: 200 + rng() * 500,     // CPU 主/次周期(秒)
+    phCpu: rng() * 6.283, phNet: rng() * 6.283, phMem: rng() * 6.283,
+    pNet: 25 + rng() * 70, pMem: 300 + rng() * 900,
   };
 }
 
@@ -176,26 +181,39 @@ function basicInfo(cc, p) {
   };
 }
 
-// 活值: 每次上报浮动, 但基于该探针稳定的画像; 累计流量随运行时间增长
+// 活值: 按时间平滑起伏(正弦叠加+噪声+偶发尖峰), 看起来像真机而非乱跳; 每台曲线都不同
 function reportPayload(p, boot) {
-  const now = Math.floor(Date.now() / 1000);
-  const uptime = Math.max(60, now - (boot || now));
-  const jit = (base, f) => Math.max(0, Math.floor(base * (1 + (Math.random() - 0.5) * f)));
-  const usage = +Math.min(98, 2 + Math.random() * 22 + (Math.random() < 0.05 ? Math.random() * 55 : 0)).toFixed(2);
-  const load1 = +(usage / 100 * p.cpu_cores * (0.7 + Math.random() * 0.8)).toFixed(2);
+  const t = Date.now() / 1000;
+  const uptime = Math.max(60, Math.floor(t - (boot || t)));
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const noise = (a) => (Math.random() - 0.5) * a;
+  // CPU: 双正弦叠加 + 噪声, 偶发尖峰
+  let usage = p.cpuBase + p.cpuAmp * 0.6 * Math.sin(t / p.pA + p.phCpu)
+    + p.cpuAmp * 0.4 * Math.sin(t / p.pB + p.phCpu * 1.7) + noise(6);
+  if (Math.random() < 0.03) usage += 25 + Math.random() * 55;   // 偶发尖峰
+  usage = +clamp(usage, 0.3, 99).toFixed(2);
+  // 内存: 缓慢漂移; 磁盘: 基本不变
+  const memFrac = clamp(p.memUsedFrac + 0.08 * Math.sin(t / p.pMem + p.phMem) + noise(0.02), 0.05, 0.95);
+  const diskFrac = clamp(p.diskUsedFrac + noise(0.004), 0.02, 0.98);
+  // 网络实时: 正弦包络 + 噪声, 偶发突发
+  const nf = 0.35 + 0.5 * Math.sin(t / p.pNet + p.phNet);
+  let up = p.upRate * nf + noise(p.upRate * 0.5);
+  let down = p.downRate * nf + noise(p.downRate * 0.5);
+  if (Math.random() < 0.05) { up *= 2 + Math.random() * 4; down *= 2 + Math.random() * 5; }
+  const load1 = +clamp(usage / 100 * p.cpu_cores * (0.8 + Math.random() * 0.5), 0, p.cpu_cores * 2.5).toFixed(2);
   return {
     cpu: { name: p.cpu_name, cores: p.cpu_cores, arch: p.arch, usage },
-    ram: { total: p.mem_total, used: Math.floor(Math.min(p.mem_total * 0.95, p.mem_total * p.memUsedFrac * (1 + (Math.random() - 0.5) * 0.3))) },
-    swap: { total: p.swap_total, used: p.swap_total ? Math.floor(p.swap_total * Math.random() * 0.4) : 0 },
-    load: { load1, load5: +(load1 * (0.7 + Math.random() * 0.2)).toFixed(2), load15: +(load1 * (0.5 + Math.random() * 0.2)).toFixed(2) },
-    disk: { total: p.disk_total, used: Math.floor(p.disk_total * p.diskUsedFrac * (1 + (Math.random() - 0.5) * 0.02)) },
+    ram: { total: p.mem_total, used: Math.floor(p.mem_total * memFrac) },
+    swap: { total: p.swap_total, used: p.swap_total ? Math.floor(p.swap_total * clamp(0.1 + 0.2 * Math.sin(t / p.pMem), 0, 0.6)) : 0 },
+    load: { load1, load5: +(load1 * (0.75 + Math.random() * 0.15)).toFixed(2), load15: +(load1 * (0.55 + Math.random() * 0.15)).toFixed(2) },
+    disk: { total: p.disk_total, used: Math.floor(p.disk_total * diskFrac) },
     network: {
-      up: jit(p.upRate, 1.6), down: jit(p.downRate, 1.6),
+      up: Math.max(0, Math.floor(up)), down: Math.max(0, Math.floor(down)),
       totalUp: p.baseUp + Math.floor(uptime * p.upRate * 0.6),
       totalDown: p.baseDown + Math.floor(uptime * p.downRate * 0.6),
     },
-    connections: { tcp: Math.floor(8 + Math.random() * 80), udp: Math.floor(Math.random() * 15) },
-    uptime, process: p.procBase + Math.floor((Math.random() - 0.5) * 10), message: "",
+    connections: { tcp: Math.floor(8 + Math.abs(Math.sin(t / p.pNet + p.phNet)) * 60 + Math.random() * 20), udp: Math.floor(Math.random() * 15) },
+    uptime, process: Math.floor(p.procBase + 12 * Math.sin(t / p.pB + p.phMem) + noise(6)), message: "",
   };
 }
 
@@ -260,7 +278,7 @@ async function keepAlive(env, c, opts) {
   for (let i = 0; i < rounds; i++) {
     const results = await Promise.allSettled(
       agents.map((a) => komariRpc(c.server, a.token, "agent.report",
-        { report: reportPayload(a.p || buildProfile(a.token), a.boot) }, `r${Date.now()}`))
+        { report: reportPayload({ ...buildProfile(a.token), ...(a.p || {}) }, a.boot) }, `r${Date.now()}`))
     );
     ok = results.filter((r) => r.status === "fulfilled").length;
     fail = results.length - ok;
