@@ -1,0 +1,26 @@
+# wrangler.toml —— 部署到 Cloudflare Workers 用
+# 用法: 装好 nodejs 后  npx wrangler kv namespace create KOMARI_KV
+#       把返回的 id 填到下面, 再  npx wrangler deploy
+name = "komari-globe"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# KV: 保存已注册探针的 uuid/token（必需）
+[[kv_namespaces]]
+binding = "KOMARI_KV"
+id = "在这里填 wrangler kv namespace create KOMARI_KV 返回的 id"
+
+# Cron Trigger: 每分钟触发一次保活（仅 Workers 支持；Pages 不支持 cron）
+# worker 内部会跑 2 轮、间隔 30s，覆盖整分钟，避免 35s 在线 TTL 掉线
+[triggers]
+crons = ["* * * * *"]
+
+# 非机密变量
+[vars]
+KOMARI_SERVER = "https://komari.example.com"
+CRON_ROUNDS = "2"
+CRON_GAP = "30"
+
+# 机密(不要写在这里, 用命令设置):
+#   npx wrangler secret put KOMARI_ADKEY     # 自动发现密钥
+#   npx wrangler secret put ACCESS_KEY       # 可选: 保护 /register /reset

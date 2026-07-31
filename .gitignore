@@ -1,0 +1,12 @@
+# 本地/临时文件，不入库
+.claude/
+__pycache__/
+*.pyc
+komari-fake-client.json
+komari-fake-state.json
+_k*/
+node_modules/
+.wrangler/
+.dev.vars
+# 个人笔记（哪吒版，与本仓库无关）
+更新探针点亮全球.md

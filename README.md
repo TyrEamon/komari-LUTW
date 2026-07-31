@@ -1,0 +1,66 @@
+# komari-LUTW · 点亮全球
+
+用 Cloudflare Worker 给 [Komari](https://github.com/komari-monitor/komari) 面板批量注册"假探针"，
+伪装成全球 ~200 个国家/地区，把面板地图点满。
+
+- 直接讲 Komari 的 HTTP JSON-RPC 协议，**不需要 protobuf / 不需要跑官方 agent**。
+- 每个探针按 token 生成一套**稳定的真实感配置**（CPU 型号 / 内存 / 磁盘固定，使用率 / 负载 / 流量浮动，累计流量随运行时间增长）。
+- `ipv4` 填保留地址 `192.0.2.1`（GeoIP 无法定位）+ 直接塞 `region` 国旗，
+  所以**不用关面板 GeoIP，也不影响你真实的服务器**。
+
+> ⚠️ 这些数字都是编造的，不是真实机器信息，仅用于"点亮地图"这类展示。
+
+## 部署到 Cloudflare（Git 绑定方式）
+
+1. **建 KV**：Cloudflare 后台 → Storage & Databases → KV → 新建一个命名空间，复制它的 **ID**。
+2. 把 ID 填进本仓库的 `wrangler.toml` 里 `[[kv_namespaces]] id = "..."`，并把 `KOMARI_SERVER` 改成你的面板地址，提交。
+3. **Workers & Pages → Create → Workers → Connect to Git**，选本仓库。CF 会读 `wrangler.toml` 自动构建部署。
+4. 在该 Worker 的 **Settings → Variables and Secrets** 里加密钥（不要写进仓库）：
+   - `KOMARI_ADKEY`（Secret）— 自动发现密钥，仅 `/register` 需要
+   - `ACCESS_KEY`（Secret，可选）— 保护 `/register /setup /reset`
+5. **Settings → Triggers → Cron Triggers** 加 `* * * * *`（每分钟）。代码内部跑 2 轮、隔 30s，盖住 Komari 的 35s 在线判定。
+
+## 连接（把探针挂上面板）
+
+打开 Worker 地址 `https://<worker>.workers.dev`，二选一：
+
+**A. 你是面板管理员（有自动发现密钥）**
+```
+/register?key=你的ACCESS_KEY          # 每次建 20 个，刷新到"全部完成"
+```
+自动发现密钥在 Komari 后台 → 设置 → 常规里的「自动发现密钥」（跟站点名称、API 密钥同一页，需管理员）。
+
+**B. 你只有客户端 token（一键部署命令里 `-t` 后面那串）**
+```
+/setup?tokens=你的token:US,另一个token:JP,第三个:AQ
+```
+
+其它路由：`/status` 看进度、`/report` 手动保活、`/reset` 清空记录（不删面板上的探针）。
+
+## 自定义配置（可选，不填=每台随机）
+
+加在 `/register` 或 `/setup` 后面，或用 `SPEC_*` 环境变量设全局默认：
+
+| 参数 | 说明 | 例 |
+|---|---|---|
+| `cpu` | CPU 型号 | `AMD%20EPYC%209654` |
+| `cores` / `pcores` | 逻辑核 / 物理核 | `4` |
+| `mem` / `swap` / `disk` | 内存 / 交换 / 磁盘（GB） | `8` |
+| `arch` `os` `virt` `gpu` `kernel` | 架构/系统/虚拟化/显卡/内核 | `amd64` |
+
+例：`/register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160`
+
+## ⚠️ 免费版限制
+
+Cloudflare 免费版**每次触发最多 50 个子请求**，保活 200 个国家一次要 200+ 个，撑不住。
+
+- **200 个全部在线** → 需 Workers 付费版（$5/月，1000 子请求）。
+- **坚持免费** → 用 `?countries=` 只挂 ≤24 个国家。
+
+## 文件
+
+- `worker.js` — Worker / Pages 主程序
+- `wrangler.toml` — 部署配置（填 KV id 与 KOMARI_SERVER）
+- `komari点亮全球.py` — 本地脚本版（不想上 CF 时用，功能较简单）
+
+仅用于自己的面板做展示，请勿滥用。
