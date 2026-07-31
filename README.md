@@ -54,8 +54,14 @@
 | `cores` / `pcores` | 逻辑核 / 物理核 | `4` |
 | `mem` / `swap` / `disk` | 内存 / 交换 / 磁盘（GB） | `8` |
 | `arch` `os` `virt` `gpu` `kernel` | 架构/系统/虚拟化/显卡/内核 | `amd64` |
+| `ipmode` | IP 类型：`v4` / `v6` / `both`（默认 v4） | `both` |
+| `ip4` / `ip6` | 固定某个 IP（默认每台随机） | `203.0.113.9` |
 
 例：`/register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160`
+
+> IP 默认**随机、且不可被 GeoIP 定位**（v4 用 CGNAT `100.64/10`，v6 用文档段 `2001:db8::`），
+> 这样国旗不会被 GeoIP 覆盖。想要真实公网 IP 会与国旗冲突（GeoIP 会按 IP 改国家），故默认不这么做。
+
 
 ## ⚠️ 免费版也能带 200 个（自调度扇出）
 

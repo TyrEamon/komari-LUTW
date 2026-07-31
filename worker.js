@@ -26,6 +26,9 @@
  * 自定义配置(可加在 /register 或 /setup 上, 也可用 SPEC_* 环境变量; 不填=每台随机):
  *   cpu=CPU型号  cores=核数  mem=内存GB  disk=磁盘GB  swap=交换GB
  *   arch=amd64  os=系统名  virt=虚拟化  gpu=显卡  kernel=内核  pcores=物理核
+ *   ipmode=v4|v6|both  ip4=固定v4  ip6=固定v6
+ *     IP 默认随机且不可被 GeoIP 定位(v4=CGNAT 100.64/10, v6=文档段 2001:db8::),
+ *     这样国旗不会被 GeoIP 覆盖。ipmode=both 即双栈 v4+v6。
  *   例: /register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160
  *   注: 不自定义时每个探针按 token 生成一套【稳定】的真实感配置(CPU型号/内存/磁盘固定,
  *       只有使用率/负载/流量浮动, 累计流量随运行时间增长)。这些数字是编造的, 不是真实机器。
@@ -123,6 +126,12 @@ function buildProfile(token, ov = {}) {
   const rng = mulberry32(hash32("globe:" + token));
   const cp = pick(rng, CPUS);
   const cores = ov.cores || pick(rng, CORESET);
+  const octet = () => Math.floor(rng() * 256), h16 = () => Math.floor(rng() * 65536).toString(16);
+  // IP: 随机、且【不可被 GeoIP 定位】(否则会覆盖我们手填的国旗)。
+  //   v4 用 CGNAT 段 100.64.0.0/10(看着像真机、GeoIP 判为保留地址);
+  //   v6 用文档段 2001:db8::/32。二者都不会被解析出国家 => 国旗稳。
+  const ip4 = ov.ip4 || `100.${64 + Math.floor(rng() * 64)}.${octet()}.${1 + Math.floor(rng() * 254)}`;
+  const ip6 = ov.ip6 || `2001:db8:${h16()}:${h16()}:${h16()}::${(1 + Math.floor(rng() * 65534)).toString(16)}`;
   return {
     cpu_name: ov.cpu || cp[0],
     arch: ov.arch || cp[1],
@@ -135,6 +144,8 @@ function buildProfile(token, ov = {}) {
     mem_total: ov.mem != null ? ov.mem : pick(rng, MEMS),
     swap_total: ov.swap != null ? ov.swap : pick(rng, [0, 0, 0, 512 * MB, 1 * GB, 2 * GB]),
     disk_total: ov.disk != null ? ov.disk : pick(rng, DISKS),
+    ip4, ip6, ipMode: ov.ipmode || "v4",           // v4 | v6 | both
+
     // 以下为"活值"基线(稳定), 让浮动看起来合理
     upRate: Math.floor(1e3 + rng() * 60e3),        // 平均上行 ~1-60 KB/s
     downRate: Math.floor(2e3 + rng() * 180e3),      // 平均下行 ~2-180 KB/s
@@ -170,14 +181,20 @@ function overrides(url, env) {
     mem: bytes(q("mem") ?? env.SPEC_MEM),
     swap: bytes(q("swap") ?? env.SPEC_SWAP),
     disk: bytes(q("disk") ?? env.SPEC_DISK),
+    ip4: q("ip4") ?? env.SPEC_IP4,                 // 固定某个 v4(不填=随机 CGNAT)
+    ip6: q("ip6") ?? env.SPEC_IP6,                 // 固定某个 v6(不填=随机文档段)
+    ipmode: ((q("ipmode") ?? env.SPEC_IPMODE) || "").toLowerCase() || undefined, // v4|v6|both
   };
 }
 
 function basicInfo(cc, p) {
+  const mode = p.ipMode || "v4";
   return {
     cpu_name: p.cpu_name, cpu_cores: p.cpu_cores, cpu_physical_cores: p.cpu_physical_cores,
     arch: p.arch, os: p.os, kernel_version: p.kernel_version,
-    ipv4: BOGON_IP, ipv6: "", region: flagEmoji(cc),
+    ipv4: mode === "v6" ? "" : (p.ip4 || BOGON_IP),
+    ipv6: mode === "v4" ? "" : (p.ip6 || ""),
+    region: flagEmoji(cc),
     mem_total: p.mem_total, swap_total: p.swap_total, disk_total: p.disk_total,
     gpu_name: p.gpu_name, virtualization: p.virtualization, version: "komari-globe/1.0",
   };
