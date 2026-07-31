@@ -469,9 +469,12 @@ function rm(){const c=$('rmc').value.trim();if(!c)return;if(confirm('从 KV 移�
 function fmtB(b){b=+b;return b>=1073741824?(b/1073741824).toFixed(0)+'G':b?(b/1048576).toFixed(0)+'M':'-'}
 async function loadList(){const box=$('tbl');box.innerHTML='加载中…';try{const r=await fetch('/list');const j=await r.json();
   if(!j.count){box.innerHTML='<small>还没有探针。去“注册”标签建一些。</small>';return}
-  let h='<table><tr><th>国</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
+  const on=j.agents.filter(a=>a.online===true).length;
+  let h='<div class="sub">共 '+j.count+' 台'+(j.onlineKnown?' · 在线 '+on+' · 离线 '+(j.count-on):' · (面板在线态不可用)')+'</div>';
+  h+='<table><tr><th>状态</th><th>国</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
   for(const a of j.agents){const ip=a.ipMode==='v6'?a.ip6:(a.ipMode==='both'?a.ip4+' / v6':a.ip4);
-    h+='<tr><td>'+a.flag+' '+a.country+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
+    const st=a.online===true?'<span style="color:var(--ok)">●在线</span>':(a.online===false?'<span style="color:var(--err)">●离线</span>':'<span style="color:var(--mut)">–</span>');
+    h+='<tr><td>'+st+'</td><td>'+a.flag+' '+a.country+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
   h+='</table>';box.innerHTML=h;}catch(e){box.innerHTML='加载失败: '+e}}
 function rmTok(tok,cc){if(!confirm('移除 '+cc+' 这一台?'))return;call('/remove'+qs({tokens:tok})).then(loadList)}
 async function refresh(){try{const r=await fetch('/status');const t=await r.text();const m=t.match(/\\d+/);$('cnt').textContent=m?'· 已注册 '+m[0]+' 个':''}catch(e){}}
@@ -583,16 +586,33 @@ async function handle(request, env, ctx) {
     if (path === "/list") {
       // 结构化列表(供控制台渲染带删除按钮的探针表)
       const agents = await loadAgents(env);
+      // 顺带拉一次面板公开接口, 标出每台真实在线状态(uuid -> online)
+      let onlineSet = null;
+      if (c.server) {
+        try {
+          const rr = await fetch(`${c.server}/api/rpc2`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: "1", method: "common:getNodesLatestStatus", params: {} }),
+          });
+          const jj = await rr.json().catch(() => null);
+          const data = jj && jj.result;
+          if (data && typeof data === "object") {
+            onlineSet = new Set();
+            for (const uuid in data) if (data[uuid] && data[uuid].online) onlineSet.add(uuid);
+          }
+        } catch (e) { /* 面板不可达就不显示在线态 */ }
+      }
       const list = agents.map((a) => {
         const p = a.p || {};
         return {
-          country: a.country, flag: flagEmoji(a.country), token: a.token,
+          country: a.country, flag: flagEmoji(a.country), token: a.token, uuid: a.uuid || "",
+          online: onlineSet ? onlineSet.has(a.uuid) : null,
           ipMode: p.ipMode || "v4", ip4: p.ip4 || "", ip6: p.ip6 || "",
           cpu: p.cpu_name || "", cores: p.cpu_cores || 0,
           mem: p.mem_total || 0, disk: p.disk_total || 0, os: p.os || "",
         };
       });
-      return new Response(JSON.stringify({ count: list.length, agents: list }),
+      return new Response(JSON.stringify({ count: list.length, onlineKnown: onlineSet !== null, agents: list }),
         { headers: { "content-type": "application/json; charset=utf-8" } });
     }
 
