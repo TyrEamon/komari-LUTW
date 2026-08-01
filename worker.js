@@ -592,22 +592,22 @@ html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--fg);font:14px/1.6 'Inter',system-ui,sans-serif;overflow-x:hidden}
 canvas#bg{position:fixed;inset:0;width:100vw;height:100vh;z-index:-1;opacity:.55}
 .grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.04;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
-.app{max-width:1440px;margin:0 auto;padding:48px 60px 120px}
-header{margin-bottom:72px;position:relative}
-.eyebrow{display:flex;align-items:center;gap:10px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.35em;text-transform:uppercase;margin-bottom:24px}
+.app{max-width:1200px;margin:0 auto;padding:48px 60px 120px}
+header{margin-bottom:20px;position:relative;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:24px}
+.eyebrow{display:flex;align-items:center;gap:10px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.35em;text-transform:uppercase;margin-bottom:18px}
 .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-h1.title{font-family:'Syne',sans-serif;font-size:clamp(52px,11vw,160px);font-weight:800;line-height:.82;letter-spacing:-.05em;text-transform:uppercase}
-h1.title .l1{background:linear-gradient(120deg,#fff 30%,var(--acc) 60%,var(--acc2) 90%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-h1.title .l2{display:block;font-size:clamp(14px,1.6vw,20px);font-weight:400;letter-spacing:.4em;margin-top:22px;color:var(--mut);-webkit-text-fill-color:var(--mut)}
-.cntbar{position:absolute;top:0;right:0;text-align:right;font-family:'JetBrains Mono',monospace}
-.cntbar .n{font-family:'Syne',sans-serif;font-size:clamp(40px,6vw,72px);font-weight:800;line-height:1;color:var(--fg)}
+h1.title{font-family:'Syne',sans-serif;font-size:clamp(48px,8vw,104px);font-weight:800;line-height:.9;letter-spacing:-.04em;text-transform:uppercase;color:#f5f5f7}
+h1.title .l2{display:block;font-family:'JetBrains Mono',monospace;font-size:clamp(11px,1.3vw,14px);font-weight:400;letter-spacing:.42em;margin-top:16px;color:var(--mut);text-transform:uppercase}
+.cntbar{text-align:right;font-family:'JetBrains Mono',monospace;padding-bottom:6px}
+.cntbar .n{font-family:'Syne',sans-serif;font-size:clamp(40px,5vw,64px);font-weight:800;line-height:1;background:linear-gradient(120deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .cntbar .lbl{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-top:6px}
-.layout{display:grid;grid-template-columns:260px 1fr;gap:56px;align-items:start}
-nav.tabs{position:sticky;top:40px;display:flex;flex-direction:column;gap:2px}
-.tab{display:flex;align-items:center;gap:14px;padding:15px 18px;background:transparent;border:0;border-left:1px solid var(--line);color:var(--mut);font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .5s cubic-bezier(.16,1,.3,1);text-align:left}
-.tab:hover{color:var(--fg);padding-left:30px;border-left-color:var(--acc)}
-.tab.on{color:var(--fg);border-left:2px solid var(--acc);padding-left:24px}
+nav.tabs{display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 0;margin-bottom:36px}
+.tab{display:flex;align-items:center;gap:10px;padding:12px 22px;background:transparent;border:0;color:var(--mut);font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .4s cubic-bezier(.16,1,.3,1);position:relative}
+.tab::after{content:'';position:absolute;left:22px;right:22px;bottom:4px;height:2px;background:var(--acc);transform:scaleX(0);transform-origin:left;transition:transform .4s cubic-bezier(.16,1,.3,1)}
+.tab:hover{color:var(--fg)}
+.tab.on{color:var(--fg)}
+.tab.on::after{transform:scaleX(1)}
 .tab.on i{color:var(--acc)}
 .tab i{width:17px;height:17px;flex-shrink:0}
 .pane{display:none}
@@ -661,25 +661,26 @@ pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px s
 hr{border:0;border-top:1px solid var(--line);margin:34px 0}
 .empty{text-align:center;padding:48px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em}
 a{color:var(--acc);text-decoration:none}
-@media(max-width:900px){.layout{grid-template-columns:1fr}nav.tabs{flex-direction:row;flex-wrap:wrap;position:relative;top:0;gap:6px}.tab{border-left:0;border:1px solid var(--line)}.tab.on{border:1px solid var(--acc)}.app{padding:28px 20px 80px}.cntbar{position:relative;text-align:left;margin-top:24px}.g2,.g3,.g4{grid-template-columns:1fr}}
+@media(max-width:900px){header{flex-direction:column;align-items:flex-start}nav.tabs{overflow-x:auto}.tab{padding:12px 14px}.app{padding:28px 20px 80px}.cntbar{text-align:left}.g2,.g3,.g4{grid-template-columns:1fr}}
 </style></head>
 <body>
 <canvas id="bg"></canvas><div class="grain"></div>
 <div class="app">
   <header>
-    <div class="eyebrow"><span class="dot"></span> KOMARI CONTROL DECK · LUTW</div>
-    <h1 class="title"><span class="l1">Light Up<br>The Globe</span><span class="l2">分布式虚拟节点编排控制台</span></h1>
+    <div>
+      <div class="eyebrow"><span class="dot"></span> KOMARI CONTROL DECK · LUTW</div>
+      <h1 class="title">KOMARI<span class="l2">Light Up The Globe · 分布式虚拟节点编排控制台</span></h1>
+    </div>
     <div class="cntbar"><div class="n" id="cnt">0</div><div class="lbl">Active Nodes</div></div>
   </header>
-  <div class="layout">
-    <nav class="tabs">
-      <button class="tab on" data-t="reg"><i data-lucide="globe-2"></i> 注册探针</button>
-      <button class="tab" data-t="setup"><i data-lucide="link-2"></i> Token 接入</button>
-      <button class="tab" data-t="list"><i data-lucide="layout-grid"></i> 节点列表</button>
-      <button class="tab" data-t="ops"><i data-lucide="activity"></i> 保活运维</button>
-      <button class="tab" data-t="help"><i data-lucide="book-open"></i> 帮助文档</button>
-    </nav>
-    <div class="content">
+  <nav class="tabs">
+    <button class="tab on" data-t="reg"><i data-lucide="globe-2"></i> 注册探针</button>
+    <button class="tab" data-t="setup"><i data-lucide="link-2"></i> Token 接入</button>
+    <button class="tab" data-t="list"><i data-lucide="layout-grid"></i> 节点列表</button>
+    <button class="tab" data-t="ops"><i data-lucide="activity"></i> 保活运维</button>
+    <button class="tab" data-t="help"><i data-lucide="book-open"></i> 帮助文档</button>
+  </nav>
+  <div class="content">
       <div class="card pane active" id="p-reg">
         <h2><i data-lucide="globe-2"></i> 自动注册</h2>
         <p class="desc">使用自动发现密钥，在目标面板批量生成整机画像一致的虚拟节点。</p>
@@ -772,7 +773,6 @@ a{color:var(--acc);text-decoration:none}
       </div>
       <pre id="out">SYSTEM READY.</pre>
       <div class="keybar"><i data-lucide="key-round"></i><input id="key" placeholder="ACCESS_KEY（若后端已设置，本地保存）" autocomplete="off"></div>
-    </div>
   </div>
 </div>
 <script>
