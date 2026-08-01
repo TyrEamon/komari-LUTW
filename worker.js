@@ -379,6 +379,13 @@ function buildProfile(token, ov = {}) {
     ipMode = r < 0.55 ? "both" : (r < 0.95 ? "v4" : "v6");
   }
   const randomRate = (range) => Math.floor((range[0] + rng() * (range[1] - range[0])) * 1024);
+  // 上/下行不再各自独立随机(会导致累计流量 2GB vs 29GB 这种夸张不对等)。
+  // 先定一个平均上行速率, 再乘一个"每台稳定"的方向比例: 多数机器下行>上行(拉取型),
+  // 少数上行>下行(回源/上传型), 但比例克制在 0.5~2.3 倍, 累计流量随之温和分化。
+  const upR = ov.uprate != null ? ov.uprate : randomRate(group.upKB || [1, 60]);
+  const netRatio = 0.5 + rng() * 1.8;               // <1: 上行多; >1: 下行多
+  const dnR = ov.downrate != null ? ov.downrate : Math.floor(upR * netRatio);
+  const baseGB = rng() * 20;                          // 起始累计上行(GB), 下行按同比例
   return {
     profile_group: group.id,
     profile_label: group.label,
@@ -395,10 +402,11 @@ function buildProfile(token, ov = {}) {
     disk_total: ov.disk != null ? ov.disk : chosenSize.disk,
     ip4, ip6, ipMode,
 
-    upRate: ov.uprate != null ? ov.uprate : randomRate(group.upKB || [1, 60]),
-    downRate: ov.downrate != null ? ov.downrate : randomRate(group.downKB || [2, 180]),
-    baseUp: Math.floor(rng() * 20) * GB,
-    baseDown: Math.floor(rng() * 40) * GB,
+    // 上/下行: 每台按稳定比例派生方向偏向(0.5~2.3x), 有的上行多有的下行多, 但不夸张对等
+    upRate: ov.uprate != null ? ov.uprate : upR,
+    downRate: ov.downrate != null ? ov.downrate : dnR,
+    baseUp: Math.floor(baseGB) * GB,
+    baseDown: Math.floor(baseGB * netRatio) * GB,
     memUsedFrac: 0.2 + rng() * 0.45,
     diskUsedFrac: 0.15 + rng() * 0.5,
     procBase: Math.floor(40 + rng() * 160),
@@ -494,13 +502,38 @@ async function loadAgents(env) { return (await env.KOMARI_KV.get(KV_KEY, "json")
 async function saveAgents(env, a) { await env.KOMARI_KV.put(KV_KEY, JSON.stringify(a)); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---- 免费版容量测算 ----
+// 决定"能挂多少探针"的三个 CF 免费版硬限制:
+//   1) 每账号 10 万次请求/天(所有 worker 共享)。cron 每分钟触发 1 次, 每次触发内部产生
+//      「1 次调度 + 分片数 × CRON_ROUNDS 次 /report 请求」, 全天 = 1440 × (1 + shards×ROUNDS)。
+//   2) 单次调用最多 50 个外部子请求 => 单分片探针数 SHARD_SIZE ≤ 45(留余量)。
+//   3) CRON_ROUNDS × CRON_GAP 要 ≤ ~50 秒(每分钟内跑得完)。
+// 预留 ~10% 请求额度给控制台/ /list / /status / 手动 /report。设 PLAN=paid 解除数量上限。
+function capacity(env) {
+  const shardSize = Math.max(1, parseInt(env.SHARD_SIZE || "40", 10));
+  const rounds = Math.max(1, parseInt(env.CRON_ROUNDS || "2", 10));
+  const gap = Math.max(0, parseInt(env.CRON_GAP || "30", 10));
+  const paid = String(env.PLAN || "").toLowerCase() === "paid";
+  const DAILY = 90000;                          // 10 万/天预留 1 万给杂项
+  const effShard = paid ? shardSize : Math.min(shardSize, 45);   // 50 外部子请求上限
+  const maxShards = paid ? Infinity : Math.max(1, Math.floor((DAILY / 1440 - 1) / rounds));
+  const maxProbes = paid ? Infinity : maxShards * effShard;
+  const gapOk = (rounds - 1) * gap <= 55;       // 间隔只在轮次之间, N 轮有 N-1 个间隔
+  return { shardSize, effShard, rounds, gap, paid, maxShards, maxProbes, gapOk };
+}
+
 // ---- 业务 ----
 async function doRegister(env, c, opts) {
   if (c.adkey.length < 12) throw new Error("缺少有效 adkey(自动发现密钥, ≥12 位)");
   const want = opts.countries || COUNTRIES;
   const agents = await loadAgents(env);
   const have = new Set(agents.map((a) => a.country));
-  const todo = want.filter((cc) => opts.force || !have.has(cc)).slice(0, opts.limit);
+  const cap = capacity(env);
+  // 免费版按 SHARD_SIZE/CRON_ROUNDS 推算的探针上限, 卡住新建数(付费版 PLAN=paid 不限)
+  const room = Math.max(0, cap.maxProbes - agents.length);
+  let todo = want.filter((cc) => opts.force || !have.has(cc)).slice(0, opts.limit);
+  let capped = 0;
+  if (todo.length > room) { capped = todo.length - room; todo = todo.slice(0, room); }
   const added = [], failed = [];
   for (const cc of todo) {
     try {
@@ -515,7 +548,7 @@ async function doRegister(env, c, opts) {
   }
   await saveAgents(env, agents);
   const remaining = want.filter((cc) => !new Set(agents.map((a) => a.country)).has(cc)).length;
-  return { added, failed, total: agents.length, remaining };
+  return { added, failed, total: agents.length, remaining, capped, maxProbes: cap.maxProbes };
 }
 
 // 手动模式: 直接用你从 komari 拿到的客户端 token(install 命令里 -t 后面那串)。
@@ -523,8 +556,12 @@ async function doRegister(env, c, opts) {
 async function doSetup(env, c, pairs, opts = {}) {
   const agents = await loadAgents(env);
   const byTok = new Map(agents.map((a) => [a.token, a]));
+  const cap = capacity(env);
   const added = [], failed = [];
+  let capped = 0;
   for (const { token, country } of pairs) {
+    // 已存在的 token 是覆盖更新, 不占新名额; 只有新增 token 受上限约束
+    if (!byTok.has(token) && byTok.size >= cap.maxProbes) { capped++; continue; }
     try {
       const p = buildProfile(token, opts.ov);
       await komariRpc(c.server, token, "agent.basicInfo", { info: basicInfo(country, p) }, "bi");
@@ -536,7 +573,7 @@ async function doSetup(env, c, pairs, opts = {}) {
     }
   }
   await saveAgents(env, [...byTok.values()]);
-  return { added, failed, total: byTok.size };
+  return { added, failed, total: byTok.size, capped, maxProbes: cap.maxProbes };
 }
 
 async function reprofileAgents(env, c, opts) {
@@ -941,6 +978,7 @@ async function handle(request, env, ctx) {
       });
       return txt(`✅ 本次注册 ${r.added.length} 个: ${r.added.map((cc) => cc + flagEmoji(cc)).join(" ")}\n` +
         `已注册合计: ${r.total} | 还差: ${r.remaining}` + (r.remaining ? `（再调一次 /register 继续）` : "（全部完成）") +
+        (r.capped ? `\n⚠️ 已达免费版容量上限 ${r.maxProbes} 个, 本次有 ${r.capped} 个被拒。调大 SHARD_SIZE/降低 CRON_ROUNDS 或换账号, 详见 /status` : "") +
         (r.failed.length ? `\n失败 ${r.failed.length}:\n` + r.failed.join("\n") : ""));
     }
 
@@ -954,7 +992,9 @@ async function handle(request, env, ctx) {
       if (!pairs.length) return txt("❌ 用法: /setup?tokens=你的token:US,另一个token:JP", 400);
       const r = await doSetup(env, c, pairs, { ov: overrides(url, env) });
       return txt(`✅ 已接入 ${r.added.length} 个: ${r.added.map((cc) => cc + flagEmoji(cc)).join(" ")}\n` +
-        `KV 内合计: ${r.total}` + (r.failed.length ? `\n失败:\n` + r.failed.join("\n") : ""));
+        `KV 内合计: ${r.total}` +
+        (r.capped ? `\n⚠️ 已达免费版容量上限 ${r.maxProbes} 个, 有 ${r.capped} 个被拒（覆盖已有 token 不占名额）` : "") +
+        (r.failed.length ? `\n失败:\n` + r.failed.join("\n") : ""));
     }
 
     if (path === "/reprofile") {
@@ -1000,12 +1040,18 @@ async function handle(request, env, ctx) {
         counts[name] = (counts[name] || 0) + 1;
       }
       const groups = Object.entries(counts).map(([name, n]) => `${name}: ${n}`).join(" | ");
+      const cap = capacity(env);
+      const capLine = cap.paid
+        ? `\n\n容量: 付费版(PLAN=paid), 探针数不限。`
+        : `\n\n免费版容量: 上限约 ${cap.maxProbes} 个（当前 ${agents.length}）
+  依据 SHARD_SIZE=${cap.effShard} × 最多 ${cap.maxShards} 分片 | CRON_ROUNDS=${cap.rounds}, CRON_GAP=${cap.gap}s${cap.gapOk ? "" : " ⚠️ ROUNDS×GAP>55s, 每分钟跑不完, 请调小"}
+  想挂更多: 调大 SHARD_SIZE(≤45) / 调小 CRON_ROUNDS, 或多开免费账号(每账号一份额度)。`;
       return txt(`已注册 ${agents.length} 个探针:
 ` + agents.map((a) => a.country + flagEmoji(a.country)).join(" ") +
         (groups ? `
 
 模板分布:
-${groups}` : ""));
+${groups}` : "") + capLine);
     }
 
     if (path === "/list") {
