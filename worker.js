@@ -641,18 +641,18 @@ select option{background:#111}
 .btn.danger{border-color:rgba(255,51,102,.5);color:var(--err)}
 .btn.danger:hover{background:var(--err);color:#fff}
 pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px solid var(--acc);padding:22px 24px;white-space:pre-wrap;word-break:break-all;min-height:70px;margin-top:44px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85;color:var(--ok);max-height:380px;overflow-y:auto}
-.nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:26px}
-.node{border:1px solid var(--line);padding:20px;background:rgba(255,255,255,.02);transition:all .35s cubic-bezier(.16,1,.3,1);position:relative}
-.node:hover{border-color:var(--acc);transform:translateY(-4px);background:rgba(0,229,255,.04)}
-.node .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
-.cc{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1}
-.stat{display:inline-flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
-.stat i{width:9px;height:9px}
-.stat.on{color:var(--ok)}.stat.off{color:var(--err)}.stat.na{color:var(--mut)}
-.node .del{cursor:pointer;background:0;border:0;color:#3a3a48;padding:3px;transition:color .2s}
+.nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:22px}
+.node{border:1px solid var(--line);padding:14px;background:rgba(255,255,255,.02);transition:all .3s cubic-bezier(.16,1,.3,1);position:relative}
+.node:hover{border-color:var(--acc);transform:translateY(-3px);background:rgba(0,229,255,.04)}
+.node .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.cc{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-.02em;line-height:1;display:flex;align-items:center;gap:7px}
+.cc .fl{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.cc .fl.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.cc .fl.off{background:var(--err)}.cc .fl.na{background:var(--mut)}
+.node .del{cursor:pointer;background:0;border:0;color:#3a3a48;padding:2px;transition:color .2s}
 .node .del:hover{color:var(--err)}
-.node .meta{font-size:12px;color:var(--mut);line-height:1.9}
-.node .meta .mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a9ab0}
+.node .badge{display:inline-block;padding:2px 7px;border:1px solid var(--line);border-radius:20px;font-size:9px;letter-spacing:.04em;color:var(--mut);margin:0 0 8px;font-family:'JetBrains Mono',monospace}
+.node .meta{font-size:11px;color:var(--mut);line-height:1.7}
+.node .meta .mono{font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8aa0;word-break:break-all}
 .badge{display:inline-block;padding:3px 9px;border:1px solid var(--line-strong);border-radius:20px;font-size:10px;letter-spacing:.06em;color:var(--mut);margin:6px 0 10px;font-family:'JetBrains Mono',monospace}
 .sumline{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--mut);letter-spacing:.05em;margin-bottom:4px}
 .sumline b{color:var(--ok)}.sumline .o{color:var(--err)}
@@ -663,6 +663,22 @@ pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px s
 hr{border:0;border-top:1px solid var(--line);margin:34px 0}
 .empty{text-align:center;padding:48px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em}
 a{color:var(--acc);text-decoration:none}
+.modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(4,4,10,.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);align-items:center;justify-content:center;padding:24px}
+.modal.open{display:flex;animation:fade .3s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal-box{background:#0d0d16;border:1px solid var(--line-strong);width:100%;max-width:880px;max-height:86vh;display:flex;flex-direction:column;padding:32px;animation:rise .5s cubic-bezier(.16,1,.3,1)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.modal-head h2{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;display:flex;align-items:center;gap:10px}
+.modal-head h2 i{width:20px;height:20px;color:var(--acc)}
+#pk-search{margin-bottom:18px}
+.pk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;overflow-y:auto;padding:4px 4px 4px 0;flex:1}
+.pk{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);cursor:pointer;transition:all .2s;user-select:none}
+.pk:hover{border-color:var(--line-strong);background:rgba(255,255,255,.03)}
+.pk.sel{border-color:var(--acc);background:rgba(0,229,255,.08)}
+.pk .code{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;min-width:26px}
+.pk .nm{font-size:12px;color:var(--mut);line-height:1.2}
+.pk.sel .nm{color:var(--fg)}
+.modal-foot{display:flex;justify-content:space-between;align-items:center;margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
 @media(max-width:900px){header{flex-direction:column;align-items:flex-start}.hright{align-items:flex-start;width:100%}.keybar{width:100%}nav.tabs{overflow-x:auto;flex-wrap:nowrap}.tab{padding:12px 14px;white-space:nowrap}.app{padding:28px 20px 80px}.cntbar{text-align:left}.g2,.g3,.g4{grid-template-columns:1fr}}
 </style></head>
 <body>
@@ -691,6 +707,7 @@ a{color:var(--acc);text-decoration:none}
         <p class="desc">使用自动发现密钥，在目标面板批量生成整机画像一致的虚拟节点。</p>
         <label>国家代码（逗号分隔；留空匹配全部 ~200 个；可重复多开）</label>
         <input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
+        <button class="btn ghost" onclick="openPicker()" style="margin-top:12px"><i data-lucide="mouse-pointer-click"></i> 可视化挑选国家</button>
         <div class="g4">
           <div><label>机器模板组</label><select id="group"><option value="">自动分配</option><option value="budget-x86">廉价 x86 VPS</option><option value="modern-intel">现代 Intel</option><option value="modern-amd">现代 AMD EPYC</option><option value="aws-x86">AWS x86</option><option value="aws-arm">AWS Graviton</option><option value="gcp-x86">GCP x86</option><option value="gcp-arm">GCP ARM</option><option value="azure-x86">Azure x86</option><option value="azure-arm">Azure ARM</option><option value="oci-arm">Oracle ARM</option><option value="enterprise-vmware">企业 VMware</option><option value="dedicated-x86">独服/家用机</option></select></div>
           <div><label>IP 模式</label><select id="ipmode"><option value="">默认 v4</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
@@ -779,6 +796,14 @@ a{color:var(--acc);text-decoration:none}
       <pre id="out">SYSTEM READY.</pre>
   </div>
 </div>
+<div class="modal" id="picker">
+  <div class="modal-box">
+    <div class="modal-head"><h2><i data-lucide="flag"></i> 挑选国家 / 地区</h2><button class="del" onclick="closePicker()"><i data-lucide="x"></i></button></div>
+    <input id="pk-search" placeholder="搜索国家名 / 代码，如 日本 / JP / Japan" oninput="renderPicker()">
+    <div class="pk-grid" id="pk-grid"></div>
+    <div class="modal-foot"><span id="pk-count" class="sumline">已选 0 个</span><div><button class="btn ghost" onclick="closePicker()"><i data-lucide="x-circle"></i> 取消</button><button class="btn" onclick="applyPicker()"><i data-lucide="check"></i> 确认添加</button></div></div>
+  </div>
+</div>
 <script>
 const $=id=>document.getElementById(id);
 $('key').value=localStorage.getItem('k')||'';
@@ -808,10 +833,22 @@ async function loadList(){const box=$('tbl');box.innerHTML='<div class="empty">L
   const on=j.agents.filter(a=>a.online===true).length;
   let h='<div class="sumline">TOTAL '+j.count+(j.onlineKnown?' · ONLINE <b>'+on+'</b> · OFFLINE <span class="o">'+(j.count-on)+'</span>':' · 面板在线态不可用')+'</div><div class="nodes">';
   for(const a of j.agents){const ip=a.ipMode==='v6'?a.ip6:(a.ipMode==='both'?a.ip4+' / v6':a.ip4);
-    const sc=a.online===true?'on':(a.online===false?'off':'na');const stt=a.online===true?'ONLINE':(a.online===false?'OFFLINE':'UNKNOWN');
-    h+='<div class="node"><div class="top"><div><div class="cc">'+a.country+'</div><div class="stat '+sc+'"><i data-lucide="circle"></i> '+stt+'</div></div><button class="del" title="移除" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')"><i data-lucide="trash-2"></i></button></div><span class="badge">'+(a.profileLabel||a.profileGroup||'—')+'</span><div class="meta"><span class="mono">'+ip+'</span><br>'+a.cores+' vCPU · '+fmtB(a.mem)+' RAM · '+fmtB(a.disk)+' DISK<br>'+(a.os||'—')+'</div></div>'}
+    const sc=a.online===true?'on':(a.online===false?'off':'na');
+    h+='<div class="node"><div class="top"><div class="cc"><span class="fl '+sc+'"></span>'+a.country+'</div><button class="del" title="移除" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')"><i data-lucide="trash-2"></i></button></div><span class="badge">'+(a.profileLabel||a.profileGroup||'—')+'</span><div class="meta"><span class="mono">'+ip+'</span><br>'+a.cores+' vCPU · '+fmtB(a.mem)+' · '+fmtB(a.disk)+'<br>'+(a.os||'—')+'</div></div>'}
   h+='</div>';box.innerHTML=h;icons();}catch(e){box.innerHTML='<div class="empty">LOAD FAILED: '+e+'</div>'}}
 function rmTok(tok,cc){if(!confirm('移除 '+cc+' 这一台?'))return;call('/remove'+qs({tokens:tok})).then(loadList)}
+// —— 国家可视化挑选器 ——
+const CN_NAMES={AD:"安道尔",AE:"阿联酋",AF:"阿富汗",AG:"安提瓜和巴布达",AL:"阿尔巴尼亚",AM:"亚美尼亚",AO:"安哥拉",AR:"阿根廷",AT:"奥地利",AU:"澳大利亚",AW:"阿鲁巴",AZ:"阿塞拜疆",AQ:"南极洲",BA:"波黑",BB:"巴巴多斯",BD:"孟加拉国",BE:"比利时",BF:"布基纳法索",BG:"保加利亚",BH:"巴林",BI:"布隆迪",BJ:"贝宁",BN:"文莱",BO:"玻利维亚",BR:"巴西",BS:"巴哈马",BT:"不丹",BW:"博茨瓦纳",BY:"白俄罗斯",BZ:"伯利兹",CA:"加拿大",CD:"刚果(金)",CF:"中非",CG:"刚果(布)",CH:"瑞士",CI:"科特迪瓦",CL:"智利",CM:"喀麦隆",CN:"中国",CO:"哥伦比亚",CR:"哥斯达黎加",CU:"古巴",CV:"佛得角",CY:"塞浦路斯",CZ:"捷克",DE:"德国",DJ:"吉布提",DK:"丹麦",DM:"多米尼克",DO:"多米尼加",DZ:"阿尔及利亚",EC:"厄瓜多尔",EE:"爱沙尼亚",EG:"埃及",ER:"厄立特里亚",ES:"西班牙",ET:"埃塞俄比亚",FI:"芬兰",FJ:"斐济",FM:"密克罗尼西亚",FR:"法国",GA:"加蓬",GB:"英国",GD:"格林纳达",GE:"格鲁吉亚",GH:"加纳",GL:"格陵兰",GM:"冈比亚",GN:"几内亚",GQ:"赤道几内亚",GR:"希腊",GT:"危地马拉",GW:"几内亚比绍",GY:"圭亚那",HK:"中国香港",HN:"洪都拉斯",HR:"克罗地亚",HT:"海地",HU:"匈牙利",ID:"印度尼西亚",IE:"爱尔兰",IL:"以色列",IN:"印度",IQ:"伊拉克",IR:"伊朗",IS:"冰岛",IT:"意大利",JM:"牙买加",JO:"约旦",JP:"日本",KE:"肯尼亚",KG:"吉尔吉斯斯坦",KH:"柬埔寨",KI:"基里巴斯",KM:"科摩罗",KN:"圣基茨和尼维斯",KP:"朝鲜",KR:"韩国",KW:"科威特",KZ:"哈萨克斯坦",LA:"老挝",LB:"黎巴嫩",LC:"圣卢西亚",LI:"列支敦士登",LK:"斯里兰卡",LR:"利比里亚",LS:"莱索托",LT:"立陶宛",LU:"卢森堡",LV:"拉脱维亚",LY:"利比亚",MA:"摩洛哥",MC:"摩纳哥",MD:"摩尔多瓦",ME:"黑山",MG:"马达加斯加",MH:"马绍尔群岛",MK:"北马其顿",ML:"马里",MM:"缅甸",MN:"蒙古",MO:"中国澳门",MR:"毛里塔尼亚",MT:"马耳他",MU:"毛里求斯",MV:"马尔代夫",MW:"马拉维",MX:"墨西哥",MY:"马来西亚",MZ:"莫桑比克",NA:"纳米比亚",NE:"尼日尔",NG:"尼日利亚",NI:"尼加拉瓜",NL:"荷兰",NO:"挪威",NP:"尼泊尔",NR:"瑙鲁",NZ:"新西兰",OM:"阿曼",PA:"巴拿马",PE:"秘鲁",PG:"巴布亚新几内亚",PH:"菲律宾",PK:"巴基斯坦",PL:"波兰",PR:"波多黎各",PS:"巴勒斯坦",PT:"葡萄牙",PW:"帕劳",PY:"巴拉圭",QA:"卡塔尔",RO:"罗马尼亚",RS:"塞尔维亚",RU:"俄罗斯",RW:"卢旺达",SA:"沙特阿拉伯",SB:"所罗门群岛",SC:"塞舌尔",SD:"苏丹",SE:"瑞典",SG:"新加坡",SI:"斯洛文尼亚",SK:"斯洛伐克",SL:"塞拉利昂",SM:"圣马力诺",SN:"塞内加尔",SO:"索马里",SR:"苏里南",SS:"南苏丹",ST:"圣多美和普林西比",SV:"萨尔瓦多",SY:"叙利亚",SZ:"斯威士兰",TD:"乍得",TG:"多哥",TH:"泰国",TJ:"塔吉克斯坦",TL:"东帝汶",TM:"土库曼斯坦",TN:"突尼斯",TO:"汤加",TR:"土耳其",TT:"特立尼达和多巴哥",TV:"图瓦卢",TW:"中国台湾",TZ:"坦桑尼亚",UA:"乌克兰",UG:"乌干达",US:"美国",UY:"乌拉圭",UZ:"乌兹别克斯坦",VA:"梵蒂冈",VC:"圣文森特和格林纳丁斯",VE:"委内瑞拉",VN:"越南",VU:"瓦努阿图",WS:"萨摩亚",YE:"也门",ZA:"南非",ZM:"赞比亚",ZW:"津巴布韦"};
+const ALL_CC=Object.keys(CN_NAMES);
+let pkSel=new Set();
+function openPicker(){pkSel=new Set(($('countries').value||'').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean));$('pk-search').value='';renderPicker();$('picker').classList.add('open');icons()}
+function closePicker(){$('picker').classList.remove('open')}
+function renderPicker(){const q=$('pk-search').value.trim().toLowerCase();const grid=$('pk-grid');let h='';
+  for(const cc of ALL_CC){const nm=CN_NAMES[cc];if(q&&!(cc.toLowerCase().includes(q)||nm.includes(q)))continue;
+    h+='<div class="pk'+(pkSel.has(cc)?' sel':'')+'" onclick="togglePk(\\''+cc+'\\')"><span class="code">'+cc+'</span><span class="nm">'+nm+'</span></div>'}
+  grid.innerHTML=h||'<div class="empty">无匹配</div>';$('pk-count').textContent='已选 '+pkSel.size+' 个'}
+function togglePk(cc){pkSel.has(cc)?pkSel.delete(cc):pkSel.add(cc);renderPicker()}
+function applyPicker(){$('countries').value=[...pkSel].join(',');closePicker()}
 async function refresh(){try{const r=await fetch('/list');const j=await r.json();animateCount(j.count||0)}catch(e){}}
 let _cv=0;function animateCount(to){const from=_cv,d=600,t0=performance.now();function step(t){const k=Math.min(1,(t-t0)/d);const e=1-Math.pow(1-k,3);$('cnt').textContent=Math.round(from+(to-from)*e);if(k<1)requestAnimationFrame(step)}requestAnimationFrame(step);_cv=to}
 refresh();icons();
