@@ -599,9 +599,14 @@ header{margin-bottom:20px;position:relative;display:flex;justify-content:space-b
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 h1.title{font-family:'Syne',sans-serif;font-size:clamp(48px,8vw,104px);font-weight:800;line-height:.9;letter-spacing:-.04em;text-transform:uppercase;color:#f5f5f7}
 h1.title .l2{display:block;font-family:'JetBrains Mono',monospace;font-size:clamp(11px,1.3vw,14px);font-weight:400;letter-spacing:.42em;margin-top:16px;color:var(--mut);text-transform:uppercase}
-.cntbar{text-align:right;font-family:'JetBrains Mono',monospace;padding-bottom:6px}
-.cntbar .n{font-family:'Syne',sans-serif;font-size:clamp(40px,5vw,64px);font-weight:800;line-height:1;background:linear-gradient(120deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.cntbar{text-align:right;font-family:'JetBrains Mono',monospace}
+.cntbar .n{font-family:'Syne',sans-serif;font-size:clamp(36px,4.5vw,56px);font-weight:800;line-height:1;background:linear-gradient(120deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .cntbar .lbl{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-top:6px}
+.hright{display:flex;flex-direction:column;align-items:flex-end;gap:16px;padding-bottom:4px}
+.keybar{display:flex;align-items:center;gap:10px;border:1px solid var(--line);padding:9px 14px;background:rgba(255,255,255,.02);min-width:240px;transition:border-color .3s}
+.keybar:focus-within{border-color:var(--acc)}
+.keybar i{color:var(--mut);width:15px;height:15px;flex-shrink:0}
+.keybar input{border:0;padding:0;font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;color:var(--fg)}
 nav.tabs{display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 0;margin-bottom:36px}
 .tab{display:flex;align-items:center;gap:10px;padding:12px 22px;background:transparent;border:0;color:var(--mut);font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .4s cubic-bezier(.16,1,.3,1);position:relative}
 .tab::after{content:'';position:absolute;left:22px;right:22px;bottom:4px;height:2px;background:var(--acc);transform:scaleX(0);transform-origin:left;transition:transform .4s cubic-bezier(.16,1,.3,1)}
@@ -636,9 +641,6 @@ select option{background:#111}
 .btn.danger{border-color:rgba(255,51,102,.5);color:var(--err)}
 .btn.danger:hover{background:var(--err);color:#fff}
 pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px solid var(--acc);padding:22px 24px;white-space:pre-wrap;word-break:break-all;min-height:70px;margin-top:44px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85;color:var(--ok);max-height:380px;overflow-y:auto}
-.keybar{margin-top:26px;display:flex;align-items:center;gap:14px;border:1px solid var(--line);padding:15px 22px;background:rgba(255,255,255,.02)}
-.keybar i{color:var(--mut);width:16px;height:16px}
-.keybar input{border:0;padding:0;font-family:'JetBrains Mono',monospace;font-size:13px}
 .nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:26px}
 .node{border:1px solid var(--line);padding:20px;background:rgba(255,255,255,.02);transition:all .35s cubic-bezier(.16,1,.3,1);position:relative}
 .node:hover{border-color:var(--acc);transform:translateY(-4px);background:rgba(0,229,255,.04)}
@@ -661,7 +663,7 @@ pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px s
 hr{border:0;border-top:1px solid var(--line);margin:34px 0}
 .empty{text-align:center;padding:48px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em}
 a{color:var(--acc);text-decoration:none}
-@media(max-width:900px){header{flex-direction:column;align-items:flex-start}nav.tabs{overflow-x:auto}.tab{padding:12px 14px}.app{padding:28px 20px 80px}.cntbar{text-align:left}.g2,.g3,.g4{grid-template-columns:1fr}}
+@media(max-width:900px){header{flex-direction:column;align-items:flex-start}.hright{align-items:flex-start;width:100%}.keybar{width:100%}nav.tabs{overflow-x:auto;flex-wrap:nowrap}.tab{padding:12px 14px;white-space:nowrap}.app{padding:28px 20px 80px}.cntbar{text-align:left}.g2,.g3,.g4{grid-template-columns:1fr}}
 </style></head>
 <body>
 <canvas id="bg"></canvas><div class="grain"></div>
@@ -671,7 +673,10 @@ a{color:var(--acc);text-decoration:none}
       <div class="eyebrow"><span class="dot"></span> KOMARI CONTROL DECK · LUTW</div>
       <h1 class="title">KOMARI<span class="l2">Light Up The Globe · 分布式虚拟节点编排控制台</span></h1>
     </div>
-    <div class="cntbar"><div class="n" id="cnt">0</div><div class="lbl">Active Nodes</div></div>
+    <div class="hright">
+      <div class="cntbar"><div class="n" id="cnt">0</div><div class="lbl">Active Nodes</div></div>
+      <div class="keybar"><i data-lucide="key-round"></i><input id="key" placeholder="ACCESS_KEY" autocomplete="off"></div>
+    </div>
   </header>
   <nav class="tabs">
     <button class="tab on" data-t="reg"><i data-lucide="globe-2"></i> 注册探针</button>
@@ -772,7 +777,6 @@ a{color:var(--acc);text-decoration:none}
         <p style="margin-top:22px;font-size:12px;color:var(--mut)">路由：/register /setup /reprofile /report /drive /status /list /remove /reset · 开源 <a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></p>
       </div>
       <pre id="out">SYSTEM READY.</pre>
-      <div class="keybar"><i data-lucide="key-round"></i><input id="key" placeholder="ACCESS_KEY（若后端已设置，本地保存）" autocomplete="off"></div>
   </div>
 </div>
 <script>
