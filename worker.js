@@ -579,186 +579,249 @@ async function keepAlive(env, c, opts) {
 const txt = (s, status = 200) => new Response(s, { status, headers: { "content-type": "text/plain; charset=utf-8" } });
 const html = (s) => new Response(s, { headers: { "content-type": "text/html; charset=utf-8" } });
 
-// 内联单页控制台(纯 HTML+JS, 无框架/无构建)。浏览器打开 worker 首页即可可视化操作。
+// 内联单页控制台(纯 HTML+JS + Lucide 图标 + 粒子网络背景, 无构建)。浏览器打开首页即可可视化操作。
 const UI = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>komari 点亮全球</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>KOMARI · LIGHT UP THE GLOBE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
 <style>
-:root{--bg:#0f1220;--card:#1a1f36;--line:#2a3152;--fg:#e8ebf5;--mut:#8b93b8;--acc:#6c8cff;--ok:#37d67a;--err:#ff6b6b}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 system-ui,"Segoe UI",sans-serif}
-.wrap{max-width:900px;margin:0 auto;padding:20px}
-h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mut);margin:0 0 16px;font-size:13px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
-.card h2{font-size:14px;margin:0 0 12px;color:var(--acc)}
-label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
-input,select{width:100%;padding:8px 10px;background:#0d1024;border:1px solid var(--line);border-radius:8px;color:var(--fg);font-size:13px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-.row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px}
-.chk{display:flex;align-items:center;gap:6px;margin-top:10px}.chk input{width:auto}
-button{cursor:pointer;border:0;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;color:#fff;background:var(--acc);margin:10px 6px 0 0}
-button.g{background:#2a3152}button.r{background:var(--err)}button.s{padding:4px 9px;margin:0;font-size:12px}button:active{transform:translateY(1px)}
-pre{background:#0a0c1a;border:1px solid var(--line);border-radius:8px;padding:12px;white-space:pre-wrap;word-break:break-all;min-height:40px;margin:14px 0 0;font-size:12px}
-small{color:var(--mut)}a{color:var(--acc)}
-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:500}
-tr:hover td{background:#0d1024}.mono{font-family:ui-monospace,Consolas,monospace}
-.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
-.tab{background:#0d1024;border:1px solid var(--line);color:var(--mut);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px}
-.tab.on{background:var(--acc);color:#fff;border-color:var(--acc)}
-.hide{display:none}.env{font-family:ui-monospace,monospace;font-size:12px}
-.badge{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;background:#0d1024;border:1px solid var(--line);margin-left:6px}
-</style></head><body><div class="wrap">
-<h1>komari 点亮全球 <small id="cnt"></small></h1>
-<p class="sub">可视化控制台 · 全部操作在本地拼接并调用本 worker 接口</p>
-
-<div class="card"><h2>访问口令</h2>
-<label>ACCESS_KEY（后台设了才需要，浏览器本地保存）</label>
-<input id="key" placeholder="没设就留空" autocomplete="off">
+:root{--bg:#080810;--card:rgba(18,18,28,0.55);--line:rgba(255,255,255,0.08);--line-strong:rgba(255,255,255,0.22);--fg:#f5f5f7;--mut:#6b6b80;--acc:#00E5FF;--acc2:#a97bff;--ok:#00ff88;--err:#ff3366}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font:14px/1.6 'Inter',system-ui,sans-serif;overflow-x:hidden}
+canvas#bg{position:fixed;inset:0;width:100vw;height:100vh;z-index:-1;opacity:.55}
+.grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.04;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+.app{max-width:1440px;margin:0 auto;padding:48px 60px 120px}
+header{margin-bottom:72px;position:relative}
+.eyebrow{display:flex;align-items:center;gap:10px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.35em;text-transform:uppercase;margin-bottom:24px}
+.eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 12px var(--ok);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+h1.title{font-family:'Syne',sans-serif;font-size:clamp(52px,11vw,160px);font-weight:800;line-height:.82;letter-spacing:-.05em;text-transform:uppercase}
+h1.title .l1{background:linear-gradient(120deg,#fff 30%,var(--acc) 60%,var(--acc2) 90%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+h1.title .l2{display:block;font-size:clamp(14px,1.6vw,20px);font-weight:400;letter-spacing:.4em;margin-top:22px;color:var(--mut);-webkit-text-fill-color:var(--mut)}
+.cntbar{position:absolute;top:0;right:0;text-align:right;font-family:'JetBrains Mono',monospace}
+.cntbar .n{font-family:'Syne',sans-serif;font-size:clamp(40px,6vw,72px);font-weight:800;line-height:1;color:var(--fg)}
+.cntbar .lbl{font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);margin-top:6px}
+.layout{display:grid;grid-template-columns:260px 1fr;gap:56px;align-items:start}
+nav.tabs{position:sticky;top:40px;display:flex;flex-direction:column;gap:2px}
+.tab{display:flex;align-items:center;gap:14px;padding:15px 18px;background:transparent;border:0;border-left:1px solid var(--line);color:var(--mut);font-size:13px;font-weight:500;letter-spacing:.04em;cursor:pointer;transition:all .5s cubic-bezier(.16,1,.3,1);text-align:left}
+.tab:hover{color:var(--fg);padding-left:30px;border-left-color:var(--acc)}
+.tab.on{color:var(--fg);border-left:2px solid var(--acc);padding-left:24px}
+.tab.on i{color:var(--acc)}
+.tab i{width:17px;height:17px;flex-shrink:0}
+.pane{display:none}
+.pane.active{display:block;animation:rise .7s cubic-bezier(.16,1,.3,1)}
+@keyframes rise{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:translateY(0)}}
+.card{background:var(--card);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--line);border-radius:2px;padding:44px;margin-bottom:28px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--line-strong),transparent)}
+.card h2{font-family:'Syne',sans-serif;font-size:30px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px;display:flex;align-items:center;gap:14px}
+.card h2 i{width:22px;height:22px;color:var(--acc)}
+.card .desc{color:var(--mut);margin-bottom:34px;font-size:13px;letter-spacing:.01em}
+label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--mut);margin:22px 0 7px}
+input,select{width:100%;padding:11px 0;background:transparent;border:0;border-bottom:1px solid var(--line-strong);color:var(--fg);font-family:'Inter',sans-serif;font-size:15px;transition:border-color .3s}
+input:focus,select:focus{outline:0;border-bottom-color:var(--acc)}
+input::placeholder{color:#3a3a48}
+select option{background:#111}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:28px}
+.chk{display:flex;align-items:center;gap:9px;margin-top:26px;font-size:13px;color:var(--mut)}
+.chk input{width:16px;height:16px;accent-color:var(--acc)}
+.btn{cursor:pointer;border:1px solid var(--fg);background:transparent;color:var(--fg);padding:15px 30px;font-family:'Syne',sans-serif;font-size:12px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;transition:all .3s;display:inline-flex;align-items:center;gap:9px;margin:26px 18px 0 0}
+.btn:hover{background:var(--fg);color:var(--bg);transform:translateY(-2px)}
+.btn i{width:14px;height:14px}
+.btn.ghost{border-color:var(--line-strong);color:var(--mut)}
+.btn.ghost:hover{border-color:var(--acc);color:var(--acc);background:transparent}
+.btn.danger{border-color:rgba(255,51,102,.5);color:var(--err)}
+.btn.danger:hover{background:var(--err);color:#fff}
+pre#out{background:rgba(0,0,0,.5);border:1px solid var(--line);border-left:2px solid var(--acc);padding:22px 24px;white-space:pre-wrap;word-break:break-all;min-height:70px;margin-top:44px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.85;color:var(--ok);max-height:380px;overflow-y:auto}
+.keybar{margin-top:26px;display:flex;align-items:center;gap:14px;border:1px solid var(--line);padding:15px 22px;background:rgba(255,255,255,.02)}
+.keybar i{color:var(--mut);width:16px;height:16px}
+.keybar input{border:0;padding:0;font-family:'JetBrains Mono',monospace;font-size:13px}
+.nodes{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:26px}
+.node{border:1px solid var(--line);padding:20px;background:rgba(255,255,255,.02);transition:all .35s cubic-bezier(.16,1,.3,1);position:relative}
+.node:hover{border-color:var(--acc);transform:translateY(-4px);background:rgba(0,229,255,.04)}
+.node .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.cc{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.stat{display:inline-flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
+.stat i{width:9px;height:9px}
+.stat.on{color:var(--ok)}.stat.off{color:var(--err)}.stat.na{color:var(--mut)}
+.node .del{cursor:pointer;background:0;border:0;color:#3a3a48;padding:3px;transition:color .2s}
+.node .del:hover{color:var(--err)}
+.node .meta{font-size:12px;color:var(--mut);line-height:1.9}
+.node .meta .mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a9ab0}
+.badge{display:inline-block;padding:3px 9px;border:1px solid var(--line-strong);border-radius:20px;font-size:10px;letter-spacing:.06em;color:var(--mut);margin:6px 0 10px;font-family:'JetBrains Mono',monospace}
+.sumline{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--mut);letter-spacing:.05em;margin-bottom:4px}
+.sumline b{color:var(--ok)}.sumline .o{color:var(--err)}
+.table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}
+.table th{text-align:left;padding:12px 0;border-bottom:1px solid var(--line-strong);color:var(--mut);text-transform:uppercase;font-size:10px;letter-spacing:.12em}
+.table td{padding:14px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.table .mono{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--acc)}
+hr{border:0;border-top:1px solid var(--line);margin:34px 0}
+.empty{text-align:center;padding:48px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em}
+a{color:var(--acc);text-decoration:none}
+@media(max-width:900px){.layout{grid-template-columns:1fr}nav.tabs{flex-direction:row;flex-wrap:wrap;position:relative;top:0;gap:6px}.tab{border-left:0;border:1px solid var(--line)}.tab.on{border:1px solid var(--acc)}.app{padding:28px 20px 80px}.cntbar{position:relative;text-align:left;margin-top:24px}.g2,.g3,.g4{grid-template-columns:1fr}}
+</style></head>
+<body>
+<canvas id="bg"></canvas><div class="grain"></div>
+<div class="app">
+  <header>
+    <div class="eyebrow"><span class="dot"></span> KOMARI CONTROL DECK · LUTW</div>
+    <h1 class="title"><span class="l1">Light Up<br>The Globe</span><span class="l2">分布式虚拟节点编排控制台</span></h1>
+    <div class="cntbar"><div class="n" id="cnt">0</div><div class="lbl">Active Nodes</div></div>
+  </header>
+  <div class="layout">
+    <nav class="tabs">
+      <button class="tab on" data-t="reg"><i data-lucide="globe-2"></i> 注册探针</button>
+      <button class="tab" data-t="setup"><i data-lucide="link-2"></i> Token 接入</button>
+      <button class="tab" data-t="list"><i data-lucide="layout-grid"></i> 节点列表</button>
+      <button class="tab" data-t="ops"><i data-lucide="activity"></i> 保活运维</button>
+      <button class="tab" data-t="help"><i data-lucide="book-open"></i> 帮助文档</button>
+    </nav>
+    <div class="content">
+      <div class="card pane active" id="p-reg">
+        <h2><i data-lucide="globe-2"></i> 自动注册</h2>
+        <p class="desc">使用自动发现密钥，在目标面板批量生成整机画像一致的虚拟节点。</p>
+        <label>国家代码（逗号分隔；留空匹配全部 ~200 个；可重复多开）</label>
+        <input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
+        <div class="g4">
+          <div><label>机器模板组</label><select id="group"><option value="">自动分配</option><option value="budget-x86">廉价 x86 VPS</option><option value="modern-intel">现代 Intel</option><option value="modern-amd">现代 AMD EPYC</option><option value="aws-x86">AWS x86</option><option value="aws-arm">AWS Graviton</option><option value="gcp-x86">GCP x86</option><option value="gcp-arm">GCP ARM</option><option value="azure-x86">Azure x86</option><option value="azure-arm">Azure ARM</option><option value="oci-arm">Oracle ARM</option><option value="enterprise-vmware">企业 VMware</option><option value="dedicated-x86">独服/家用机</option></select></div>
+          <div><label>IP 模式</label><select id="ipmode"><option value="">默认 v4</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
+          <div><label>本次数量 limit</label><input id="limit" placeholder="20"></div>
+          <div><label>固定 IPv4</label><input id="ip4" placeholder="随机"></div>
+        </div>
+        <div class="g4">
+          <div><label>核数 cores</label><input id="cores" placeholder="随机"></div>
+          <div><label>物理核 pcores</label><input id="pcores" placeholder="随机"></div>
+          <div><label>内存 GB</label><input id="mem" placeholder="随机"></div>
+          <div><label>磁盘 GB</label><input id="disk" placeholder="随机"></div>
+        </div>
+        <div class="g4">
+          <div><label>交换 GB</label><input id="swap" placeholder="随机"></div>
+          <div><label>下行 KB/s</label><input id="downrate" placeholder="随机"></div>
+          <div><label>上行 KB/s</label><input id="uprate" placeholder="随机"></div>
+          <div><label>固定 IPv6</label><input id="ip6" placeholder="随机"></div>
+        </div>
+        <div class="g3">
+          <div><label>CPU 型号</label><input id="cpu" placeholder="随机"></div>
+          <div><label>系统 OS</label><input id="os" placeholder="随机"></div>
+          <div><label>虚拟化 Virt</label><input id="virt" placeholder="随机"></div>
+        </div>
+        <div class="g3">
+          <div><label>架构 Arch</label><input id="arch" placeholder="随机"></div>
+          <div><label>GPU</label><input id="gpu" placeholder="随机/空"></div>
+          <div><label>内核 Kernel</label><input id="kernel" placeholder="随机"></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="force"> 允许重复国家 / 覆盖重建（force）</label>
+        <div><button class="btn" onclick="reg()"><i data-lucide="plus-circle"></i> 注册</button>
+        <button class="btn ghost" onclick="regAll()"><i data-lucide="zap"></i> 一键注册全部</button></div>
+      </div>
+      <div class="card pane" id="p-setup">
+        <h2><i data-lucide="link-2"></i> 手动接入</h2>
+        <p class="desc">无需管理员权限，直接用客户端 Token 接入指定国家；可套用注册页的配置项。</p>
+        <label>Tokens（格式 token:US,token2:JP，冒号后为国家代码）</label>
+        <input id="tokens" placeholder="Pf8xxxx:US,abcd:JP">
+        <div><button class="btn" onclick="setup()"><i data-lucide="log-in"></i> 接入</button></div>
+      </div>
+      <div class="card pane" id="p-list">
+        <h2><i data-lucide="layout-grid"></i> 节点列表 <button class="btn ghost" onclick="loadList()" style="margin:0 0 0 auto;padding:9px 18px;font-size:11px"><i data-lucide="refresh-cw"></i> 刷新</button></h2>
+        <div id="tbl"><div class="empty">POINT &amp; CLICK REFRESH TO LOAD NODES</div></div>
+      </div>
+      <div class="card pane" id="p-ops">
+        <h2><i data-lucide="activity"></i> 保活与运维</h2>
+        <div class="g3">
+          <div><label>Rounds 轮数</label><input id="d_rounds" placeholder="1"></div>
+          <div><label>Gap 间隔秒</label><input id="d_gap" placeholder="0"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="drive()"><i data-lucide="rocket"></i> 扇出保活</button></div>
+        </div>
+        <button class="btn ghost" onclick="go('/status')"><i data-lucide="info"></i> 查看状态</button>
+        <button class="btn ghost" onclick="go('/report')"><i data-lucide="server"></i> 直连保活</button>
+        <hr>
+        <h2 style="font-size:22px"><i data-lucide="layers"></i> 重建画像</h2>
+        <p class="desc">旧 KV 中的配置不会自动更新；每批最多 40 台，按 offset 分批重建并推送到面板。</p>
+        <div class="g3">
+          <div><label>Offset 起始</label><input id="rp_offset" placeholder="0"></div>
+          <div><label>Limit 每批≤40</label><input id="rp_limit" placeholder="40"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" onclick="reprofile()"><i data-lucide="refresh-ccw-dot"></i> 重建批次</button></div>
+        </div>
+        <hr>
+        <h2 style="font-size:22px"><i data-lucide="trash-2"></i> 移除管理</h2>
+        <label>按国家移除（逗号分隔；仅从 KV 移除，面板仍需手动删）</label>
+        <input id="rmc" placeholder="US,JP">
+        <div><button class="btn danger" onclick="rm()"><i data-lucide="x-circle"></i> 移除</button>
+        <button class="btn danger" onclick="if(confirm('确认清空全部 KV 记录? 面板探针不受影响'))go('/reset')"><i data-lucide="alert-triangle"></i> 清空全部</button></div>
+      </div>
+      <div class="card pane" id="p-help">
+        <h2><i data-lucide="book-open"></i> 环境与路由</h2>
+        <p class="desc">在 Cloudflare 后台 Settings → Variables 配置以启用对应能力。</p>
+        <table class="table">
+          <tr><th>变量</th><th>作用</th></tr>
+          <tr><td class="mono">KOMARI_KV</td><td>KV 绑定（必须，存探针数据）</td></tr>
+          <tr><td class="mono">KOMARI_SERVER</td><td>面板地址（必须）</td></tr>
+          <tr><td class="mono">KOMARI_ADKEY</td><td>自动发现密钥（走注册需要）</td></tr>
+          <tr><td class="mono">ACCESS_KEY</td><td>控制台 / 写操作口令</td></tr>
+          <tr><td class="mono">SELF</td><td>Service binding 绑到自身（开扇出，推荐）</td></tr>
+          <tr><td class="mono">SELF_URL</td><td>本 Worker 地址（无 SELF 绑定时的退路）</td></tr>
+          <tr><td class="mono">SHARD_SIZE</td><td>每分片探针数，默认 40</td></tr>
+          <tr><td class="mono">CRON_ROUNDS / CRON_GAP</td><td>每分钟上报轮数 / 间隔秒（如 28/2 ≈ 每 2 秒）</td></tr>
+          <tr><td class="mono">SPEC_GROUP</td><td>固定模板组；留空按权重稳定分配</td></tr>
+          <tr><td class="mono">SPEC_*</td><td>画像覆盖：SPEC_CPU/CORES/MEM/DISK/OS/IPMODE/UPRATE…</td></tr>
+        </table>
+        <p style="margin-top:22px;font-size:12px;color:var(--mut)">路由：/register /setup /reprofile /report /drive /status /list /remove /reset · 开源 <a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></p>
+      </div>
+      <pre id="out">SYSTEM READY.</pre>
+      <div class="keybar"><i data-lucide="key-round"></i><input id="key" placeholder="ACCESS_KEY（若后端已设置，本地保存）" autocomplete="off"></div>
+    </div>
+  </div>
 </div>
-
-<div class="tabs">
-<div class="tab on" data-t="reg">注册</div>
-<div class="tab" data-t="setup">Token 接入</div>
-<div class="tab" data-t="list">探针列表</div>
-<div class="tab" data-t="ops">保活 / 运维</div>
-<div class="tab" data-t="help">环境变量 / 帮助</div>
-</div>
-
-<div class="card pane" id="p-reg"><h2>注册探针（用自动发现密钥自动建号）</h2>
-<label>国家代码（逗号分隔；留空=内置 ~200 个；同一国家写多次+勾选重复可多开）</label>
-<input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
-<div class="row4">
-<div><label>机器模板组</label><select id="group">
-<option value="">自动按权重分配</option>
-<option value="budget-x86">廉价 x86 VPS</option>
-<option value="modern-intel">现代 Intel 云主机</option>
-<option value="modern-amd">现代 AMD EPYC</option>
-<option value="aws-x86">AWS EC2 x86</option>
-<option value="aws-arm">AWS Graviton</option>
-<option value="gcp-x86">Google Cloud x86</option>
-<option value="gcp-arm">Google Cloud ARM</option>
-<option value="azure-x86">Azure x86</option>
-<option value="azure-arm">Azure ARM</option>
-<option value="oci-arm">Oracle Cloud ARM</option>
-<option value="enterprise-vmware">企业 VMware/KVM</option>
-<option value="dedicated-x86">独服/家用机</option>
-</select></div>
-<div><label>IP 模式</label><select id="ipmode"><option value="">默认(v4)</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
-<div><label>每次数量 limit</label><input id="limit" placeholder="20"></div>
-<div><label>固定 IPv4 ip4（可选）</label><input id="ip4" placeholder="随机"></div>
-</div>
-<div class="row4">
-<div><label>核数 cores</label><input id="cores" placeholder="随机"></div>
-<div><label>物理核 pcores</label><input id="pcores" placeholder="随机"></div>
-<div><label>内存 GB</label><input id="mem" placeholder="随机"></div>
-<div><label>磁盘 GB</label><input id="disk" placeholder="随机"></div>
-</div>
-<div class="row4">
-<div><label>交换 GB swap</label><input id="swap" placeholder="随机"></div>
-<div><label>下行 KB/s</label><input id="downrate" placeholder="随机"></div>
-<div><label>上行 KB/s</label><input id="uprate" placeholder="随机"></div>
-<div><label>固定 IPv6 ip6（可选）</label><input id="ip6" placeholder="随机"></div>
-</div>
-<div class="row3">
-<div><label>CPU 型号 cpu</label><input id="cpu" placeholder="随机"></div>
-<div><label>系统 os</label><input id="os" placeholder="随机"></div>
-<div><label>虚拟化 virt</label><input id="virt" placeholder="随机"></div>
-</div>
-<div class="row3">
-<div><label>架构 arch</label><input id="arch" placeholder="随机"></div>
-<div><label>GPU gpu</label><input id="gpu" placeholder="随机/空"></div>
-<div><label>内核 kernel</label><input id="kernel" placeholder="随机"></div>
-</div>
-<label class="chk"><input type="checkbox" id="force"> 允许重复国家 / 覆盖重建 (force)</label>
-<button onclick="reg()">注册 / 继续注册</button>
-<button class="g" onclick="regAll()">一键注册全部 ~200</button>
-</div>
-
-<div class="card pane hide" id="p-setup"><h2>用已有 token 接入（无需自动发现密钥）</h2>
-<label>tokens（格式 token:US,token2:JP，冒号后是国家代码）</label>
-<input id="tokens" placeholder="Pf8xxxx:US,abcd:JP">
-<small>把 komari 一键部署命令里 -t 后面那串填进来，冒号后跟想挂的国家。可套用上方“注册”表单里的配置项。</small>
-<button onclick="setup()">接入</button>
-</div>
-
-<div class="card pane hide" id="p-list"><h2>探针列表 <button class="g s" onclick="loadList()">刷新</button></h2>
-<div id="tbl"><small>点“刷新”加载。</small></div>
-</div>
-
-<div class="card pane hide" id="p-ops"><h2>保活 / 运维</h2>
-<div class="row3">
-<div><label>rounds（轮数）</label><input id="d_rounds" placeholder="1"></div>
-<div><label>gap（间隔秒）</label><input id="d_gap" placeholder="0"></div>
-<div><label>&nbsp;</label><button onclick="drive()">立即保活/扇出一次</button></div>
-</div>
-<button class="g" onclick="go('/status')">查看状态(文本)</button>
-<button class="g" onclick="go('/report')">直连保活一轮</button>
-<hr style="border-color:var(--line);margin:16px 0">
-<h2>重建已有探针画像</h2>
-<small>旧 KV 中保存的乱搭配置不会自动变化。每批最多 40 台，按 offset 分批重建，并立即推送到面板。</small>
-<div class="row3">
-<div><label>offset（从第几台开始）</label><input id="rp_offset" placeholder="0"></div>
-<div><label>limit（每批最多 40）</label><input id="rp_limit" placeholder="40"></div>
-<div><label>&nbsp;</label><button onclick="reprofile()">重建这一批画像</button></div>
-</div>
-<hr style="border-color:var(--line);margin:16px 0">
-<label>按国家移除（仅从 KV 移除，面板上仍需手动删）</label>
-<input id="rmc" placeholder="US,JP">
-<button class="r" onclick="rm()">移除这些国家</button>
-<button class="r" onclick="if(confirm('清空 KV 全部记录? 面板探针不受影响'))go('/reset')">清空全部 KV</button>
-</div>
-
-<div class="card pane hide" id="p-help"><h2>环境变量（在 CF 后台 Settings→Variables 设置）</h2>
-<table><tr><th>变量</th><th>作用</th></tr>
-<tr><td class="env">KOMARI_KV</td><td>KV 绑定（必须，存探针）</td></tr>
-<tr><td class="env">KOMARI_SERVER</td><td>面板地址（必须）</td></tr>
-<tr><td class="env">KOMARI_ADKEY</td><td>自动发现密钥（走注册需要）</td></tr>
-<tr><td class="env">ACCESS_KEY</td><td>控制台/写操作口令</td></tr>
-<tr><td class="env">SELF</td><td>Service binding 绑到自身（开扇出，推荐）</td></tr>
-<tr><td class="env">SELF_URL</td><td>本 worker 地址（无 SELF 绑定时的退路）</td></tr>
-<tr><td class="env">SHARD_SIZE</td><td>每分片探针数，默认 40</td></tr>
-<tr><td class="env">CRON_ROUNDS / CRON_GAP</td><td>每分钟上报轮数 / 间隔秒（如 28/2 ≈ 每 2 秒）</td></tr>
-<tr><td class="env">SPEC_GROUP</td><td>固定机器模板组，如 aws-arm、budget-x86；留空则按权重稳定分配</td></tr>
-<tr><td class="env">SPEC_*</td><td>画像字段覆盖：SPEC_CPU/CORES/MEM/DISK/OS/IPMODE/UPRATE… </td></tr>
-</table>
-<p><small>路由：/register /setup /reprofile /report /drive /status /list /remove /reset。开源：
-<a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></small></p>
-</div>
-
-<pre id="out">就绪。</pre>
-</div><script>
+<script>
 const $=id=>document.getElementById(id);
 $('key').value=localStorage.getItem('k')||'';
 $('key').oninput=e=>localStorage.setItem('k',e.target.value);
 const out=$('out');
+function icons(){if(window.lucide)lucide.createIcons();}
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));t.classList.add('on');
-  document.querySelectorAll('.pane').forEach(p=>p.classList.add('hide'));
-  $('p-'+t.dataset.t).classList.remove('hide');
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+  $('p-'+t.dataset.t).classList.add('active');
   if(t.dataset.t==='list')loadList();
+  icons();
 });
 function qs(o){const p=[];for(const k in o){const v=o[k];if(v!==''&&v!=null)p.push(k+'='+encodeURIComponent(v))}const kk=$('key').value.trim();if(kk)p.push('key='+encodeURIComponent(kk));return p.length?'?'+p.join('&'):''}
-async function call(path){out.textContent='请求中…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='出错: '+e}}
+async function call(path){out.textContent='REQUESTING…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='ERROR: '+e}}
 function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(kk?'key='+encodeURIComponent(kk):''))}
 function spec(){return{group:$('group').value,ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
 function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},spec())))}
-function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到“全部完成”'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
+function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到全部完成'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
 function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim()},spec())))}
 function drive(){go('/drive?rounds='+($('d_rounds').value.trim()||'1')+'&gap='+($('d_gap').value.trim()||'0'))}
 function reprofile(){call('/reprofile'+qs(Object.assign({offset:$('rp_offset').value.trim()||'0',limit:$('rp_limit').value.trim()||'40'},spec())))}
 function rm(){const c=$('rmc').value.trim();if(!c)return;if(confirm('从 KV 移除 '+c+' ?'))call('/remove'+qs({countries:c}))}
 function fmtB(b){b=+b;return b>=1073741824?(b/1073741824).toFixed(0)+'G':b?(b/1048576).toFixed(0)+'M':'-'}
-async function loadList(){const box=$('tbl');box.innerHTML='加载中…';try{const r=await fetch('/list');const j=await r.json();
-  if(!j.count){box.innerHTML='<small>还没有探针。去“注册”标签建一些。</small>';return}
+async function loadList(){const box=$('tbl');box.innerHTML='<div class="empty">LOADING NODES…</div>';try{const r=await fetch('/list');const j=await r.json();
+  if(!j.count){box.innerHTML='<div class="empty">NO NODES YET — REGISTER SOME FIRST</div>';return}
   const on=j.agents.filter(a=>a.online===true).length;
-  let h='<div class="sub">共 '+j.count+' 台'+(j.onlineKnown?' · 在线 '+on+' · 离线 '+(j.count-on):' · (面板在线态不可用)')+'</div>';
-  h+='<table><tr><th>状态</th><th>国</th><th>类型</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
+  let h='<div class="sumline">TOTAL '+j.count+(j.onlineKnown?' · ONLINE <b>'+on+'</b> · OFFLINE <span class="o">'+(j.count-on)+'</span>':' · 面板在线态不可用')+'</div><div class="nodes">';
   for(const a of j.agents){const ip=a.ipMode==='v6'?a.ip6:(a.ipMode==='both'?a.ip4+' / v6':a.ip4);
-    const st=a.online===true?'<span style="color:var(--ok)">●在线</span>':(a.online===false?'<span style="color:var(--err)">●离线</span>':'<span style="color:var(--mut)">–</span>');
-    h+='<tr><td>'+st+'</td><td>'+a.flag+' '+a.country+'</td><td>'+(a.profileLabel||a.profileGroup||'-')+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
-  h+='</table>';box.innerHTML=h;}catch(e){box.innerHTML='加载失败: '+e}}
+    const sc=a.online===true?'on':(a.online===false?'off':'na');const stt=a.online===true?'ONLINE':(a.online===false?'OFFLINE':'UNKNOWN');
+    h+='<div class="node"><div class="top"><div><div class="cc">'+a.country+'</div><div class="stat '+sc+'"><i data-lucide="circle"></i> '+stt+'</div></div><button class="del" title="移除" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')"><i data-lucide="trash-2"></i></button></div><span class="badge">'+(a.profileLabel||a.profileGroup||'—')+'</span><div class="meta"><span class="mono">'+ip+'</span><br>'+a.cores+' vCPU · '+fmtB(a.mem)+' RAM · '+fmtB(a.disk)+' DISK<br>'+(a.os||'—')+'</div></div>'}
+  h+='</div>';box.innerHTML=h;icons();}catch(e){box.innerHTML='<div class="empty">LOAD FAILED: '+e+'</div>'}}
 function rmTok(tok,cc){if(!confirm('移除 '+cc+' 这一台?'))return;call('/remove'+qs({tokens:tok})).then(loadList)}
-async function refresh(){try{const r=await fetch('/status');const t=await r.text();const m=t.match(/\\d+/);$('cnt').textContent=m?'· 已注册 '+m[0]+' 个':''}catch(e){}}
-refresh();
+async function refresh(){try{const r=await fetch('/list');const j=await r.json();animateCount(j.count||0)}catch(e){}}
+let _cv=0;function animateCount(to){const from=_cv,d=600,t0=performance.now();function step(t){const k=Math.min(1,(t-t0)/d);const e=1-Math.pow(1-k,3);$('cnt').textContent=Math.round(from+(to-from)*e);if(k<1)requestAnimationFrame(step)}requestAnimationFrame(step);_cv=to}
+refresh();icons();
+
+// —— 交互式粒子网络背景 ——
+const cv=$('bg'),cx=cv.getContext('2d');let W,H,ns=[],mx=-1e3,my=-1e3;
+function rz(){W=cv.width=innerWidth;H=cv.height=innerHeight;ns=[];const c=Math.min(120,Math.floor(W*H/24000));for(let i=0;i<c;i++)ns.push({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.28,vy:(Math.random()-.5)*.28,r:Math.random()*1.4+.4})}
+function draw(){cx.clearRect(0,0,W,H);for(let i=0;i<ns.length;i++){const n=ns[i];n.x+=n.vx;n.y+=n.vy;if(n.x<0||n.x>W)n.vx*=-1;if(n.y<0||n.y>H)n.vy*=-1;
+  const dx=mx-n.x,dy=my-n.y,dm=Math.hypot(dx,dy);if(dm<200){cx.beginPath();cx.moveTo(n.x,n.y);cx.lineTo(mx,my);cx.strokeStyle='rgba(0,229,255,'+(1-dm/200)*.45+')';cx.lineWidth=1;cx.stroke()}
+  cx.beginPath();cx.arc(n.x,n.y,n.r,0,7);cx.fillStyle='rgba(245,245,247,.9)';cx.fill();
+  for(let j=i+1;j<ns.length;j++){const m=ns[j],ddx=n.x-m.x,ddy=n.y-m.y,d2=Math.hypot(ddx,ddy);if(d2<130){cx.beginPath();cx.moveTo(n.x,n.y);cx.lineTo(m.x,m.y);cx.strokeStyle='rgba(150,160,220,'+(1-d2/130)*.09+')';cx.lineWidth=1;cx.stroke()}}}
+  requestAnimationFrame(draw)}
+addEventListener('resize',rz);addEventListener('mousemove',e=>{mx=e.clientX;my=e.clientY});addEventListener('mouseout',()=>{mx=my=-1e3});
+rz();draw();
 </script></body></html>`;
 
 
