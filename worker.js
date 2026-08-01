@@ -602,18 +602,24 @@ async function reprofileAgents(env, c, opts) {
 async function keepAlive(env, c, opts) {
   let agents = await loadAgents(env);
   if (opts.offset || opts.limit) agents = agents.slice(opts.offset, opts.limit ? opts.offset + opts.limit : undefined);
+  // 每台探针的面板地址: 优先用注册/接入时存的 a.server, 退回全局 c.server。都没有才算缺失。
+  if (agents.length && agents.every((a) => !a.server && !c.server)) {
+    return { online: 0, failed: 0, count: agents.length, rounds: 0, noServer: true };
+  }
   const rounds = Math.max(1, opts.rounds), gap = Math.max(0, opts.gap) * 1000;
   const spread = Math.max(0, opts.spread || 0) * 1000;   // 错开窗口(秒): 让 N 个探针不在同一刻上报
   let ok = 0, fail = 0;
   for (let i = 0; i < rounds; i++) {
     const start = Date.now();
     const results = await Promise.allSettled(agents.map(async (a) => {
+      const srv = a.server || c.server;
+      if (!srv) throw new Error("no server");
       if (spread) {
         // 每个探针有稳定的相位(按 token 派生)+ 少量随机抖动 => 像各自独立的定时器, 时间戳散开
         const phase = (hash32(a.token) % 10000) / 10000;
         await sleep(phase * spread + Math.random() * spread * 0.2);
       }
-      return komariRpc(a.server || c.server, a.token, "agent.report",
+      return komariRpc(srv, a.token, "agent.report",
         { report: reportPayload({ ...buildProfile(a.token), ...(a.p || {}) }, a.boot) }, `r${Date.now()}`);
     }));
     ok = results.filter((r) => r.status === "fulfilled").length;
@@ -1015,7 +1021,8 @@ async function handle(request, env, ctx) {
     }
 
     if (path === "/report") {
-      if (!c.server) return txt("❌ 缺少 server(URL 参数或 KOMARI_SERVER)", 400);
+      // 不再强制 KOMARI_SERVER: 每个探针在注册/接入时已把自己的面板地址存进 KV(a.server),
+      // 保活时按 a.server 路由。仅当既无全局 server、探针又都没存 server 时才报错。
       const r = await keepAlive(env, c, {
         offset: parseInt(url.searchParams.get("offset") || "0", 10),
         limit: parseInt(url.searchParams.get("limit") || "0", 10),
@@ -1023,6 +1030,7 @@ async function handle(request, env, ctx) {
         gap: parseInt(url.searchParams.get("gap") || "30", 10),
         spread: parseInt(url.searchParams.get("spread") || "0", 10),
       });
+      if (r.noServer) return txt("❌ 探针未记录面板地址, 且未设 KOMARI_SERVER。请在注册/接入时填面板地址, 或设 KOMARI_SERVER", 400);
       return txt(`✅ 保活完成 在线 ${r.online}/${r.count}（${r.rounds} 轮）` + (r.failed ? ` 失败 ${r.failed}` : ""));
     }
 
@@ -1124,13 +1132,15 @@ export default {
   // Cloudflare Cron Trigger(每分钟触发)。
   // 设了 SELF_URL 就走"扇出"(免费版也能带 200+); 没设则直接保活(探针少或付费版够用)。
   async scheduled(event, env, ctx) {
-    if (!env.KOMARI_KV || !env.KOMARI_SERVER) return;
+    if (!env.KOMARI_KV) return;
     const selfUrl = (env.SELF_URL || "").replace(/\/+$/, "");
     const rounds = parseInt(env.CRON_ROUNDS || "2", 10), gap = parseInt(env.CRON_GAP || "30", 10);
     if (env.SELF || selfUrl) {
+      // 扇出: 每个分片自己按 a.server 路由, 不依赖全局 KOMARI_SERVER
       ctx.waitUntil(dispatch(env, selfUrl, { shardSize: parseInt(env.SHARD_SIZE || "40", 10), rounds, gap }));
     } else {
-      const c = { server: env.KOMARI_SERVER.replace(/\/+$/, "") };
+      // 直接保活: 全局 server 可空(探针各自存了 server 时也能打)
+      const c = { server: (env.KOMARI_SERVER || "").replace(/\/+$/, "") };
       ctx.waitUntil(keepAlive(env, c, { offset: 0, limit: 0, rounds, gap, spread: gap }));
     }
   },
