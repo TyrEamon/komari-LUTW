@@ -753,6 +753,10 @@ a{color:var(--acc);text-decoration:none}
       <div class="card pane active" id="p-reg">
         <h2><i data-lucide="globe-2"></i> 自动注册</h2>
         <p class="desc">使用自动发现密钥，在目标面板批量生成整机画像一致的虚拟节点。</p>
+        <div class="g2">
+          <div><label>面板地址（可选，留空用默认 KOMARI_SERVER）</label><input id="r_server" placeholder="https://komari.example.com"></div>
+          <div><label>自动发现密钥 KOMARI_ADKEY（可选，留空用环境变量）</label><input id="r_adkey" type="password" placeholder="留空=用环境变量里的" autocomplete="off"></div>
+        </div>
         <label>国家代码（逗号分隔；留空匹配全部 ~200 个；可重复多开）</label>
         <input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
         <button class="btn ghost" onclick="openPicker()" style="margin-top:12px"><i data-lucide="mouse-pointer-click"></i> 可视化挑选国家</button>
@@ -876,8 +880,9 @@ function qs(o){const p=[];for(const k in o){const v=o[k];if(v!==''&&v!=null)p.pu
 async function call(path){out.textContent='REQUESTING…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='ERROR: '+e}}
 function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(kk?'key='+encodeURIComponent(kk):''))}
 function spec(){return{group:$('group').value,ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
-function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},spec())))}
-function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到全部完成'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
+function regBase(){return{server:$('r_server').value.trim(),adkey:$('r_adkey').value.trim()}}
+function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},regBase(),spec())))}
+function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到全部完成'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},regBase(),spec())))}
 function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim(),server:$('s_server').value.trim()},spec())))}
 function drive(){go('/drive?rounds='+($('d_rounds').value.trim()||'1')+'&gap='+($('d_gap').value.trim()||'0'))}
 function reprofile(){call('/reprofile'+qs(Object.assign({offset:$('rp_offset').value.trim()||'0',limit:$('rp_limit').value.trim()||'40'},spec())))}
@@ -1077,7 +1082,7 @@ ${groups}` : "") + capLine);
         const p = a.p || {};
         return {
           country: a.country, flag: flagEmoji(a.country), token: a.token, uuid: a.uuid || "",
-          online: onlineSet ? onlineSet.has(a.uuid) : null,
+          online: (onlineSet && a.uuid) ? onlineSet.has(a.uuid) : null,
           ipMode: p.ipMode || "v4", ip4: p.ip4 || "", ip6: p.ip6 || "",
           profileGroup: p.profile_group || "", profileLabel: p.profile_label || "",
           cpu: p.cpu_name || "", cores: p.cpu_cores || 0,
