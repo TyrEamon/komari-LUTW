@@ -108,6 +108,16 @@ const size = (cores, pcores, memGB, diskGB, swapGB = 0) => ({
   cores, pcores, mem: memGB * GB, disk: diskGB * GB, swap: swapGB * GB,
 });
 const system = (os, kernels) => ({ os, kernels });
+// 真实机器大多有 swap(常见 512M~4G, 也有约 1/4 无 swap)。size() 未显式给 swap 时按内存推一个合理值。
+function defaultSwap(rng, memBytes) {
+  const r = rng();
+  if (r < 0.22) return 0;                          // ~22% 无 swap
+  const mem = memBytes || GB;
+  const opts = mem <= GB ? [512 * MB, 1 * GB, mem]
+    : mem <= 4 * GB ? [512 * MB, 1 * GB, 2 * GB, mem]
+    : [1 * GB, 2 * GB, 4 * GB, 8 * GB];
+  return opts[Math.floor(rng() * opts.length)];
+}
 
 const OS_COMMON_AMD64 = [
   system("Ubuntu 24.04.4 LTS", ["6.8.0-40-generic", "6.8.0-51-generic", "6.8.0-60-generic"]),
@@ -381,7 +391,7 @@ function buildProfile(token, ov = {}) {
     virtualization: ov.virt || pick(rng, group.virts),
     gpu_name: ov.gpu != null ? ov.gpu : pick(rng, group.gpus || [""]),
     mem_total: ov.mem != null ? ov.mem : chosenSize.mem,
-    swap_total: ov.swap != null ? ov.swap : chosenSize.swap,
+    swap_total: ov.swap != null ? ov.swap : (chosenSize.swap || defaultSwap(rng, chosenSize.mem)),
     disk_total: ov.disk != null ? ov.disk : chosenSize.disk,
     ip4, ip6, ipMode,
 
@@ -497,7 +507,7 @@ async function doRegister(env, c, opts) {
       const { uuid, token } = await komariRegister(c.server, c.adkey, `globe-${cc}`);
       const p = buildProfile(token, opts.ov);
       await komariRpc(c.server, token, "agent.basicInfo", { info: basicInfo(cc, p) }, "bi");
-      agents.push({ country: cc, uuid, token, boot: Math.floor(Date.now() / 1000), p });
+      agents.push({ country: cc, uuid, token, boot: Math.floor(Date.now() / 1000), p, server: c.server });
       added.push(cc);
     } catch (e) {
       failed.push(`${cc}: ${e.message}`);
@@ -518,7 +528,7 @@ async function doSetup(env, c, pairs, opts = {}) {
     try {
       const p = buildProfile(token, opts.ov);
       await komariRpc(c.server, token, "agent.basicInfo", { info: basicInfo(country, p) }, "bi");
-      const a = { country, token, boot: Math.floor(Date.now() / 1000), p };
+      const a = { country, token, boot: Math.floor(Date.now() / 1000), p, server: c.server };
       byTok.set(token, a);
       added.push(country);
     } catch (e) {
@@ -540,7 +550,7 @@ async function reprofileAgents(env, c, opts) {
     const a = agents[i];
     try {
       const p = buildProfile(a.token, opts.ov || {});
-      await komariRpc(c.server, a.token, "agent.basicInfo", { info: basicInfo(a.country, p) }, `rp${Date.now()}-${i}`);
+      await komariRpc(a.server || c.server, a.token, "agent.basicInfo", { info: basicInfo(a.country, p) }, `rp${Date.now()}-${i}`);
       a.p = p;
       ok++;
     } catch (e) {
@@ -566,7 +576,7 @@ async function keepAlive(env, c, opts) {
         const phase = (hash32(a.token) % 10000) / 10000;
         await sleep(phase * spread + Math.random() * spread * 0.2);
       }
-      return komariRpc(c.server, a.token, "agent.report",
+      return komariRpc(a.server || c.server, a.token, "agent.report",
         { report: reportPayload({ ...buildProfile(a.token), ...(a.p || {}) }, a.boot) }, `r${Date.now()}`);
     }));
     ok = results.filter((r) => r.status === "fulfilled").length;
@@ -743,8 +753,15 @@ a{color:var(--acc);text-decoration:none}
       <div class="card pane" id="p-setup">
         <h2><i data-lucide="link-2"></i> 手动接入</h2>
         <p class="desc">无需管理员权限，直接用客户端 Token 接入指定国家；可套用注册页的配置项。</p>
+        <div style="border:1px solid var(--line);border-left:2px solid var(--acc);padding:14px 18px;margin-bottom:8px;font-size:12px;color:var(--mut);line-height:1.8">
+          <b style="color:var(--fg)">Token 从哪来？</b> 面板“添加服务器”给出的一键安装命令里，<code class="mono" style="color:var(--acc)">-t</code> 后面那串就是。<br>
+          例：<span class="mono">wget … | sudo bash -s -- -e https://komari.example.com -t </span><span class="mono" style="color:var(--acc)">AYhew0ayzRrKbokJkUJzU3</span><br>
+          把它填成 <span class="mono">AYhew0ayzRrKbokJkUJzU3:US</span>（冒号后是国家代码），多个用逗号分隔。
+        </div>
+        <label>面板地址（可选，留空用默认 KOMARI_SERVER；填了则接入到该面板）</label>
+        <input id="s_server" placeholder="https://komari-sg.mtcacg.top">
         <label>Tokens（格式 token:US,token2:JP，冒号后为国家代码）</label>
-        <input id="tokens" placeholder="Pf8xxxx:US,abcd:JP">
+        <input id="tokens" placeholder="AYhew0ayzRrKbokJkUJzU3:US,abcd1234:JP">
         <div><button class="btn" onclick="setup()"><i data-lucide="log-in"></i> 接入</button></div>
       </div>
       <div class="card pane" id="p-list">
@@ -823,7 +840,7 @@ function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(
 function spec(){return{group:$('group').value,ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
 function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},spec())))}
 function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到全部完成'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
-function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim()},spec())))}
+function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim(),server:$('s_server').value.trim()},spec())))}
 function drive(){go('/drive?rounds='+($('d_rounds').value.trim()||'1')+'&gap='+($('d_gap').value.trim()||'0'))}
 function reprofile(){call('/reprofile'+qs(Object.assign({offset:$('rp_offset').value.trim()||'0',limit:$('rp_limit').value.trim()||'40'},spec())))}
 function rm(){const c=$('rmc').value.trim();if(!c)return;if(confirm('从 KV 移除 '+c+' ?'))call('/remove'+qs({countries:c}))}
