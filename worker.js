@@ -757,12 +757,12 @@ a{color:var(--acc);text-decoration:none}
         <div style="border:1px solid var(--line);border-left:2px solid var(--acc);padding:14px 18px;margin-bottom:8px;font-size:12px;color:var(--mut);line-height:1.8">
           <b style="color:var(--fg)">Token 从哪来？</b> 面板“添加服务器”给出的一键安装命令里，<code class="mono" style="color:var(--acc)">-t</code> 后面那串就是。<br>
           例：<span class="mono">wget … | sudo bash -s -- -e https://komari.example.com -t </span><span class="mono" style="color:var(--acc)">AYhew*********UJzU3</span><br>
-          把它填成 <span class="mono">AYhew*********zU3:US</span>（冒号后是国家代码），多个用逗号分隔。
+          把它填成 <span class="mono">YOUR TOKEN:US</span>（冒号后是国家代码），多个用逗号分隔。
         </div>
         <label>面板地址（可选，留空用默认 KOMARI_SERVER；填了则接入到该面板）</label>
-        <input id="s_server" placeholder="https://komari-sg.mtcacg.top">
+        <input id="s_server" placeholder="https://komari.example.com">
         <label>Tokens（格式 token:US,token2:JP，冒号后为国家代码）</label>
-        <input id="tokens" placeholder="AYhew0ayzRrKbokJkUJzU3:US,abcd1234:JP">
+        <input id="tokens" placeholder="YOUR TOKEN:US,abcd1234:JP">
         <div><button class="btn" onclick="setup()"><i data-lucide="log-in"></i> 接入</button></div>
       </div>
       <div class="card pane" id="p-list">
