@@ -18,23 +18,27 @@
  * 路由:
  *   GET /register?limit=20            用 adkey 自动建号并注册(幂等), 一次最多 limit 个
  *   GET /setup?tokens=tok:US,tok2:JP  用你已有的客户端 token 接入(不需要 adkey)
+ *   GET /reprofile?offset=0&limit=40 重建已有探针画像并推送 basicInfo
  *   GET /report?offset=0&limit=40     保活一个分片(默认全部); cron/扇出会自动带 offset/limit
  *   GET /drive?shard=40               手动触发一次扇出保活(等价于 cron 干的事)
  *   GET /status                       看已注册了多少、都是哪些国家
  *   GET /reset                        清空 KV 里的记录(不会删面板上的探针)
  *
  * 自定义配置(可加在 /register 或 /setup 上, 也可用 SPEC_* 环境变量; 不填=每台随机):
- *   cpu=CPU型号  cores=核数  mem=内存GB  disk=磁盘GB  swap=交换GB
+ *   group=模板组  cpu=CPU型号  cores=核数  mem=内存GB  disk=磁盘GB  swap=交换GB
  *   arch=amd64  os=系统名  virt=虚拟化  gpu=显卡  kernel=内核  pcores=物理核
  *   ipmode=v4|v6|both  ip4=固定v4  ip6=固定v6
  *     IP 默认随机且不可被 GeoIP 定位(v4=CGNAT 100.64/10, v6=文档段 2001:db8::),
  *     这样国旗不会被 GeoIP 覆盖。ipmode=both 即双栈 v4+v6。
- *   例: /register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160
+ *   模板组: budget-x86 / modern-intel / modern-amd / aws-x86 / aws-arm /
+ *           gcp-x86 / gcp-arm / azure-x86 / azure-arm / oci-arm /
+ *           enterprise-vmware / dedicated-x86
+ *   例: /register?group=aws-arm  或 /register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160
  *   注: 不自定义时每个探针按 token 生成一套【稳定】的真实感配置(CPU型号/内存/磁盘固定,
  *       只有使用率/负载/流量浮动, 累计流量随运行时间增长)。这些数字是编造的, 不是真实机器。
  *
- * 关键点: ipv4 填 192.0.2.1(保留地址, GeoIP 无法定位) + 直接塞 region 国旗,
- *          所以不用关面板 GeoIP, 也不影响你真实的服务器。
+ * 关键点: ip 默认随机且不可被 GeoIP 定位(v4=CGNAT 100.64/10, v6=文档段 2001:db8::),
+ *          再直接塞 region 国旗, 所以不用关面板 GeoIP, 也不影响你真实的服务器。
  */
 
 const BOGON_IP = "192.0.2.1";
@@ -94,81 +98,308 @@ async function komariRpc(server, token, method, params, id) {
   return j;
 }
 
-// ---- 硬件画像(让假探针看起来像台真机器) ----
-// 每个探针的静态配置由 token 派生的伪随机数决定 => 同一探针每次显示的
-// CPU/内存/磁盘都一样(像真机),只有使用率/负载/流量这些"活"的值才浮动。
-const CPUS = [
-  ["Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz", "amd64"],
-  ["Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", "amd64"],
-  ["Intel(R) Xeon(R) E5-2686 v4 @ 2.30GHz", "amd64"],
-  ["Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz", "amd64"],
-  ["AMD EPYC 7B13", "amd64"], ["AMD EPYC 7402P 24-Core Processor", "amd64"],
-  ["AMD Ryzen 9 5900X 12-Core Processor", "amd64"],
-  ["Intel(R) Core(TM) i7-9700 CPU @ 3.00GHz", "amd64"],
-  ["Ampere(R) Altra(R) Q80-30", "arm64"], ["Neoverse-N1", "arm64"],
-];
-const OSES = ["Ubuntu 24.04.4 LTS", "Ubuntu 22.04.4 LTS", "Debian GNU/Linux 12 (bookworm)",
-  "Debian GNU/Linux 11 (bullseye)", "CentOS Stream 9", "Rocky Linux 9.3 (Blue Onyx)",
-  "AlmaLinux 9.4 (Seafoam Ocelot)", "Fedora Linux 40 (Server Edition)", "Alpine Linux v3.20"];
-const KERNELS = ["6.8.0-40-generic", "5.15.0-113-generic", "6.1.0-21-amd64",
-  "5.10.0-30-amd64", "5.14.0-427.el9.x86_64", "6.6.32-0-lts"];
-const VIRTS = ["kvm", "kvm", "kvm", "openvz", "lxc", "vmware", "xen", "amazon", "microsoft"];
-const MEMS = [512 * MB, 1 * GB, 2 * GB, 2 * GB, 4 * GB, 4 * GB, 8 * GB, 16 * GB, 32 * GB];
-const DISKS = [10 * GB, 20 * GB, 20 * GB, 25 * GB, 40 * GB, 50 * GB, 80 * GB, 100 * GB, 160 * GB, 200 * GB];
-const CORESET = [1, 1, 2, 2, 2, 4, 4, 8];
-
+// ---- 硬件画像(按“整机模板组”生成，避免 CPU / 架构 / 系统 / 内核乱搭) ----
+// 每个探针先按 token 稳定选择一个机器组，再只在组内选择 CPU、系统、内核、
+// 虚拟化与规格套餐。同一个 token 每次都会得到同一套静态配置。
 function hash32(s) { let h = 2166136261 >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+const size = (cores, pcores, memGB, diskGB, swapGB = 0) => ({
+  cores, pcores, mem: memGB * GB, disk: diskGB * GB, swap: swapGB * GB,
+});
+const system = (os, kernels) => ({ os, kernels });
 
-// ov: 用户自定义(全局), 未指定的字段用 token 派生的随机值
+const OS_COMMON_AMD64 = [
+  system("Ubuntu 24.04.4 LTS", ["6.8.0-40-generic", "6.8.0-51-generic", "6.8.0-60-generic"]),
+  system("Ubuntu 22.04.4 LTS", ["5.15.0-113-generic", "5.15.0-126-generic", "5.15.0-130-generic"]),
+  system("Ubuntu 20.04.6 LTS", ["5.4.0-196-generic", "5.4.0-204-generic"]),
+  system("Debian GNU/Linux 12 (bookworm)", ["6.1.0-21-amd64", "6.1.0-28-amd64", "6.1.0-31-amd64"]),
+  system("Debian GNU/Linux 11 (bullseye)", ["5.10.0-30-amd64", "5.10.0-32-amd64"]),
+];
+const OS_COMMON_ARM64 = [
+  system("Ubuntu 24.04.4 LTS", ["6.8.0-40-generic", "6.8.0-51-generic", "6.8.0-60-generic"]),
+  system("Ubuntu 22.04.4 LTS", ["5.15.0-113-generic", "5.15.0-126-generic"]),
+  system("Debian GNU/Linux 12 (bookworm)", ["6.1.0-21-arm64", "6.1.0-28-arm64", "6.1.0-31-arm64"]),
+  system("Debian GNU/Linux 11 (bullseye)", ["5.10.0-30-arm64", "5.10.0-32-arm64"]),
+];
+const OS_ENTERPRISE_AMD64 = [
+  system("Rocky Linux 9.3 (Blue Onyx)", ["5.14.0-427.el9.x86_64", "5.14.0-503.el9.x86_64"]),
+  system("AlmaLinux 9.4 (Seafoam Ocelot)", ["5.14.0-427.el9.x86_64", "5.14.0-503.el9.x86_64"]),
+  system("CentOS Stream 9", ["5.14.0-482.el9.x86_64", "5.14.0-503.el9.x86_64"]),
+  system("Rocky Linux 8.10 (Green Obsidian)", ["4.18.0-553.el8_10.x86_64"]),
+];
+const OS_AWS_AMD64 = [
+  system("Amazon Linux 2023", ["6.1.134-150.224.amzn2023.x86_64", "6.1.140-154.222.amzn2023.x86_64"]),
+  system("Amazon Linux 2", ["5.10.234-225.910.amzn2.x86_64", "5.10.235-227.919.amzn2.x86_64"]),
+  ...OS_COMMON_AMD64,
+];
+const OS_AWS_ARM64 = [
+  system("Amazon Linux 2023", ["6.1.134-150.224.amzn2023.aarch64", "6.1.140-154.222.amzn2023.aarch64"]),
+  system("Amazon Linux 2", ["5.10.234-225.910.amzn2.aarch64", "5.10.235-227.919.amzn2.aarch64"]),
+  ...OS_COMMON_ARM64,
+];
+const OS_OCI_ARM64 = [
+  system("Oracle Linux Server 9.4", ["5.15.0-303.171.5.2.el9uek.aarch64", "6.12.0-1.23.3.el9uek.aarch64"]),
+  system("Oracle Linux Server 8.10", ["5.15.0-300.163.18.el8uek.aarch64", "5.15.0-303.171.5.2.el8uek.aarch64"]),
+  ...OS_COMMON_ARM64,
+];
+
+const PROFILE_GROUPS = [
+  {
+    id: "budget-x86", label: "廉价 x86 VPS", weight: 28, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) CPU E5-2620 v2 @ 2.10GHz", "Intel(R) Xeon(R) CPU E5-2630 v3 @ 2.40GHz",
+      "Intel(R) Xeon(R) CPU E5-2630 v4 @ 2.20GHz", "Intel(R) Xeon(R) CPU E5-2640 v3 @ 2.60GHz",
+      "Intel(R) Xeon(R) CPU E5-2640 v4 @ 2.40GHz", "Intel(R) Xeon(R) CPU E5-2650 v2 @ 2.60GHz",
+      "Intel(R) Xeon(R) CPU E5-2650 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2650 v4 @ 2.20GHz",
+      "Intel(R) Xeon(R) CPU E5-2660 v2 @ 2.20GHz", "Intel(R) Xeon(R) CPU E5-2660 v3 @ 2.60GHz",
+      "Intel(R) Xeon(R) CPU E5-2660 v4 @ 2.00GHz", "Intel(R) Xeon(R) CPU E5-2670 v2 @ 2.50GHz",
+      "Intel(R) Xeon(R) CPU E5-2670 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2673 v3 @ 2.40GHz",
+      "Intel(R) Xeon(R) CPU E5-2673 v4 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2680 v2 @ 2.80GHz",
+      "Intel(R) Xeon(R) CPU E5-2680 v3 @ 2.50GHz", "Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz",
+      "Intel(R) Xeon(R) CPU E5-2686 v4 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz",
+      "Intel(R) Xeon(R) CPU E5-2690 v4 @ 2.60GHz", "Intel(R) Xeon(R) CPU E5-2696 v2 @ 2.50GHz",
+      "Intel(R) Xeon(R) CPU E5-2696 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2696 v4 @ 2.20GHz",
+      "Intel(R) Xeon(R) CPU E5-2697 v3 @ 2.60GHz", "Intel(R) Xeon(R) CPU E5-2697 v4 @ 2.30GHz",
+      "Intel(R) Xeon(R) CPU E5-2698 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2698 v4 @ 2.20GHz",
+      "AMD EPYC 7251 8-Core Processor", "AMD EPYC 7281 16-Core Processor",
+      "AMD EPYC 7351P 16-Core Processor", "AMD EPYC 7401P 24-Core Processor", "AMD EPYC 7551P 32-Core Processor",
+    ],
+    systems: [...OS_COMMON_AMD64, system("Alpine Linux v3.20", ["6.6.32-0-lts", "6.6.46-0-lts"])],
+    virts: ["kvm", "kvm", "kvm", "kvm", "openvz", "lxc"],
+    sizes: [size(1,1,0.5,10), size(1,1,1,20), size(1,1,2,25), size(2,1,2,40), size(2,1,4,50), size(4,2,4,80), size(4,2,8,100)],
+    gpus: ["", "", "", "", "Red Hat, Inc. Virtio GPU"], upKB: [1, 45], downKB: [3, 140],
+  },
+  {
+    id: "modern-intel", label: "现代 Intel 云主机", weight: 14, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) Silver 4110 CPU @ 2.10GHz", "Intel(R) Xeon(R) Silver 4210R CPU @ 2.40GHz",
+      "Intel(R) Xeon(R) Silver 4310 CPU @ 2.10GHz", "Intel(R) Xeon(R) Gold 5118 CPU @ 2.30GHz",
+      "Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz", "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz",
+      "Intel(R) Xeon(R) Gold 6148 CPU @ 2.40GHz", "Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz",
+      "Intel(R) Xeon(R) Gold 6246R CPU @ 3.40GHz", "Intel(R) Xeon(R) Gold 6253CL CPU @ 3.10GHz",
+      "Intel(R) Xeon(R) Gold 6268CL CPU @ 2.80GHz", "Intel(R) Xeon(R) Platinum 8168 CPU @ 2.70GHz",
+      "Intel(R) Xeon(R) Platinum 8171M CPU @ 2.60GHz", "Intel(R) Xeon(R) Platinum 8173M CPU @ 2.00GHz",
+      "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz", "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+      "Intel(R) Xeon(R) Platinum 8272CL CPU @ 2.60GHz", "Intel(R) Xeon(R) Platinum 8273CL CPU @ 2.20GHz",
+      "Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz", "Intel(R) Xeon(R) Platinum 8280L CPU @ 2.70GHz",
+      "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz", "Intel(R) Xeon(R) Platinum 8373C CPU @ 2.60GHz",
+      "Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz", "Intel(R) Xeon(R) Platinum 8473C",
+      "Intel(R) Xeon(R) Platinum 8481C", "Intel(R) Xeon(R) Platinum 8490H",
+      "Intel(R) Xeon(R) Platinum 8573C", "Intel(R) Xeon(R) Platinum 8581C", "Intel(R) Xeon(R) Platinum 6985P-C",
+    ],
+    systems: [...OS_COMMON_AMD64, ...OS_ENTERPRISE_AMD64], virts: ["kvm", "kvm", "kvm", "vmware"],
+    sizes: [size(2,1,4,40), size(2,1,8,80), size(4,2,8,80), size(4,2,16,160), size(8,4,16,200), size(8,4,32,300), size(16,8,64,500)],
+    gpus: ["", "", "", "Red Hat, Inc. Virtio GPU"], upKB: [8, 100], downKB: [20, 350],
+  },
+  {
+    id: "modern-amd", label: "现代 AMD EPYC 云主机", weight: 16, arch: "amd64",
+    cpus: [
+      "AMD EPYC 7551 32-Core Processor", "AMD EPYC 7551P 32-Core Processor", "AMD EPYC 7402P 24-Core Processor",
+      "AMD EPYC 7452 32-Core Processor", "AMD EPYC 7502P 32-Core Processor", "AMD EPYC 7642 48-Core Processor",
+      "AMD EPYC 7742 64-Core Processor", "AMD EPYC 7B12", "AMD EPYC 7V12", "AMD EPYC 7B13",
+      "AMD EPYC 7R13", "AMD EPYC 7R32", "AMD EPYC 7763", "AMD EPYC 7763v", "AMD EPYC 7V13",
+      "AMD EPYC 7V73X", "AMD EPYC 9B14", "AMD EPYC 9B45", "AMD EPYC 9R14", "AMD EPYC 9R45",
+      "AMD EPYC 9R05", "AMD EPYC 9V33X", "AMD EPYC 9J45",
+    ],
+    systems: [...OS_COMMON_AMD64, ...OS_ENTERPRISE_AMD64], virts: ["kvm", "kvm", "kvm", "vmware"],
+    sizes: [size(2,1,4,40), size(2,1,8,80), size(4,2,8,80), size(4,2,16,160), size(8,4,16,200), size(8,4,32,300), size(16,8,64,500)],
+    gpus: ["", "", "", "Red Hat, Inc. Virtio GPU"], upKB: [8, 110], downKB: [20, 380],
+  },
+  {
+    id: "aws-x86", label: "AWS EC2 x86", weight: 7, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz", "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+      "Intel(R) Xeon(R) Platinum 8275CL CPU @ 3.00GHz", "Intel Xeon Ice Lake", "Intel Xeon Sapphire Rapids",
+      "Intel Xeon Granite Rapids", "AMD EPYC 7R13", "AMD EPYC 7R32", "AMD EPYC 9R14", "AMD EPYC 9R45", "AMD EPYC 9R05",
+    ],
+    systems: OS_AWS_AMD64, virts: ["amazon"],
+    sizes: [size(1,1,1,8), size(1,1,2,20), size(2,1,4,30), size(4,2,8,50), size(4,2,16,100), size(8,4,32,160), size(16,8,64,320)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "aws-arm", label: "AWS Graviton", weight: 5, arch: "arm64",
+    cpus: ["AWS Graviton2 Processor", "AWS Graviton3 Processor", "AWS Graviton3E Processor", "AWS Graviton4 Processor"],
+    systems: OS_AWS_ARM64, virts: ["amazon"],
+    sizes: [size(1,1,1,8), size(1,1,2,20), size(2,2,4,30), size(4,4,8,50), size(4,4,16,100), size(8,8,32,160), size(16,16,64,320)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "gcp-x86", label: "Google Cloud x86", weight: 6, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) CPU E5-2689 @ 2.60GHz", "Intel(R) Xeon(R) CPU E5-2696 v2 @ 2.50GHz",
+      "Intel(R) Xeon(R) CPU E5-2696 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2696 v4 @ 2.20GHz",
+      "Intel(R) Xeon(R) CPU E7-8880 v4 @ 2.20GHz", "Intel(R) Xeon(R) Platinum 8173M CPU @ 2.00GHz",
+      "Intel(R) Xeon(R) Platinum 8273CL CPU @ 2.20GHz", "Intel(R) Xeon(R) Platinum 8280L CPU @ 2.70GHz",
+      "Intel(R) Xeon(R) Gold 6253CL CPU @ 3.10GHz", "Intel(R) Xeon(R) Gold 6268CL CPU @ 2.80GHz",
+      "Intel(R) Xeon(R) Platinum 8373C CPU @ 2.60GHz", "Intel(R) Xeon(R) Platinum 8481C",
+      "Intel(R) Xeon(R) Platinum 8490H", "Intel(R) Xeon(R) Platinum 8581C", "Intel(R) Xeon(R) Platinum 6985P-C",
+      "AMD EPYC 7B12", "AMD EPYC 7B13", "AMD EPYC 9B14", "AMD EPYC 9B45",
+    ],
+    systems: [...OS_COMMON_AMD64, ...OS_ENTERPRISE_AMD64], virts: ["kvm"],
+    sizes: [size(1,1,1,10), size(1,1,2,20), size(2,1,4,30), size(4,2,8,50), size(4,2,16,100), size(8,4,32,200), size(16,8,64,400)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "gcp-arm", label: "Google Cloud ARM", weight: 3, arch: "arm64",
+    cpus: ["Ampere Altra Q64-30", "Google Axion Processor", "NVIDIA Grace Processor"],
+    systems: OS_COMMON_ARM64, virts: ["kvm"],
+    sizes: [size(1,1,2,10), size(2,2,4,20), size(4,4,8,50), size(8,8,16,100), size(16,16,32,200)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "azure-x86", label: "Microsoft Azure x86", weight: 6, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) CPU E5-2673 v3 @ 2.40GHz", "Intel(R) Xeon(R) CPU E5-2673 v4 @ 2.30GHz",
+      "Intel(R) Xeon(R) CPU E5-2690 v3 @ 2.60GHz", "Intel(R) Xeon(R) CPU E5-2690 v4 @ 2.60GHz",
+      "Intel(R) Xeon(R) CPU E5-2698 v3 @ 2.30GHz", "Intel(R) Xeon(R) CPU E5-2698B v3 @ 2.00GHz",
+      "Intel(R) Xeon(R) Platinum 8168 CPU @ 2.70GHz", "Intel(R) Xeon(R) Platinum 8171M CPU @ 2.60GHz",
+      "Intel(R) Xeon(R) Platinum 8272CL CPU @ 2.60GHz", "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+      "Intel(R) Xeon(R) Platinum 8473C", "Intel(R) Xeon(R) Platinum 8573C",
+      "AMD EPYC 7551", "AMD EPYC 7452", "AMD EPYC 7V12", "AMD EPYC 7742", "AMD EPYC 7763",
+      "AMD EPYC 7763v", "AMD EPYC 7V13", "AMD EPYC 7V73X", "AMD EPYC 9V33X", "AMD EPYC 9004", "AMD EPYC 9005",
+    ],
+    systems: [...OS_COMMON_AMD64, ...OS_ENTERPRISE_AMD64], virts: ["microsoft"],
+    sizes: [size(1,1,1,30), size(1,1,2,30), size(2,1,4,64), size(4,2,8,128), size(4,2,16,128), size(8,4,32,256), size(16,8,64,512)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "azure-arm", label: "Microsoft Azure ARM", weight: 2, arch: "arm64",
+    cpus: ["Ampere Altra", "Microsoft Azure Cobalt 100"], systems: OS_COMMON_ARM64, virts: ["microsoft"],
+    sizes: [size(2,2,4,30), size(4,4,8,64), size(8,8,16,128), size(16,16,32,256)],
+    gpus: [""], upKB: [10, 120], downKB: [25, 420],
+  },
+  {
+    id: "oci-arm", label: "Oracle Cloud ARM", weight: 4, arch: "arm64",
+    cpus: ["Ampere(R) Altra(R) Q80-30", "Ampere Altra Q80-30", "Ampere AmpereOne A160-30", "Ampere AmpereOne M A06-36M", "Ampere AmpereOne M 192-36M"],
+    systems: OS_OCI_ARM64, virts: ["kvm"],
+    sizes: [size(1,1,6,50), size(2,2,12,50), size(4,4,24,100), size(8,8,48,200), size(16,16,96,400)],
+    gpus: [""], upKB: [8, 100], downKB: [20, 360],
+  },
+  {
+    id: "enterprise-vmware", label: "企业 VMware/KVM", weight: 4, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz", "Intel(R) Xeon(R) Gold 6148 CPU @ 2.40GHz",
+      "Intel(R) Xeon(R) Gold 6230R CPU @ 2.10GHz", "Intel(R) Xeon(R) Gold 6246R CPU @ 3.40GHz",
+      "Intel(R) Xeon(R) Platinum 8168 CPU @ 2.70GHz", "Intel(R) Xeon(R) Platinum 8272CL CPU @ 2.60GHz",
+      "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz", "AMD EPYC 7402P 24-Core Processor",
+      "AMD EPYC 7452 32-Core Processor", "AMD EPYC 7502P 32-Core Processor", "AMD EPYC 7763",
+    ],
+    systems: [...OS_ENTERPRISE_AMD64, ...OS_COMMON_AMD64], virts: ["vmware", "vmware", "kvm"],
+    sizes: [size(2,1,4,60), size(4,2,8,100), size(4,2,16,160), size(8,4,32,300), size(16,8,64,600)],
+    gpus: ["", "", "VMware SVGA II Adapter"], upKB: [5, 80], downKB: [15, 260],
+  },
+  {
+    id: "dedicated-x86", label: "独服/家用机", weight: 5, arch: "amd64",
+    cpus: [
+      "Intel(R) Xeon(R) CPU E3-1230 v3 @ 3.30GHz", "Intel(R) Xeon(R) CPU E3-1240 v5 @ 3.50GHz",
+      "Intel(R) Xeon(R) E-2146G CPU @ 3.50GHz", "Intel(R) Xeon(R) E-2288G CPU @ 3.70GHz",
+      "AMD EPYC 7302P 16-Core Processor", "AMD EPYC 7402P 24-Core Processor", "AMD EPYC 7443P 24-Core Processor",
+      "AMD EPYC 7513 32-Core Processor", "AMD Ryzen 5 3600 6-Core Processor", "AMD Ryzen 5 5600X 6-Core Processor",
+      "AMD Ryzen 7 3700X 8-Core Processor", "AMD Ryzen 7 5700X 8-Core Processor",
+      "AMD Ryzen 9 3900X 12-Core Processor", "AMD Ryzen 9 5900X 12-Core Processor",
+      "AMD Ryzen 9 5950X 16-Core Processor", "AMD Ryzen 9 7900 12-Core Processor", "AMD Ryzen 9 7950X 16-Core Processor",
+      "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz", "Intel(R) Core(TM) i7-9700 CPU @ 3.00GHz",
+      "Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz", "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+      "Intel(R) Core(TM) i9-10900K CPU @ 3.70GHz", "Intel(R) Core(TM) i9-12900K", "Intel(R) Core(TM) i9-13900K",
+    ],
+    systems: [...OS_COMMON_AMD64, ...OS_ENTERPRISE_AMD64], virts: ["none", "none", "kvm", "vmware"],
+    sizes: [size(4,4,16,240), size(6,6,32,480), size(8,8,32,500), size(12,12,64,1000), size(16,16,64,1000), size(16,16,128,2000)],
+    gpus: ["", "", "", "Intel Corporation UHD Graphics"], upKB: [20, 220], downKB: [50, 700],
+  },
+];
+
+function weightedPick(rng, groups) {
+  const total = groups.reduce((n, g) => n + Math.max(0, g.weight || 0), 0);
+  let cursor = rng() * total;
+  for (const g of groups) {
+    cursor -= Math.max(0, g.weight || 0);
+    if (cursor < 0) return g;
+  }
+  return groups[groups.length - 1];
+}
+function inferArchFromCpu(name) {
+  if (!name) return "";
+  return /(graviton|ampere|neoverse|axion|grace|cobalt|aarch64|arm64)/i.test(name) ? "arm64" : "amd64";
+}
+function selectProfileGroup(rng, ov) {
+  const requested = String(ov.group || "").trim().toLowerCase();
+  if (requested) {
+    const exact = PROFILE_GROUPS.find((g) => g.id === requested);
+    if (exact) return exact;
+  }
+  const archHint = String(ov.arch || inferArchFromCpu(ov.cpu) || "").toLowerCase();
+  const candidates = archHint ? PROFILE_GROUPS.filter((g) => g.arch === archHint) : PROFILE_GROUPS;
+  return weightedPick(rng, candidates.length ? candidates : PROFILE_GROUPS);
+}
+function customKernelCandidates(os, arch) {
+  const arm = arch === "arm64";
+  const s = String(os || "").toLowerCase();
+  if (s.includes("ubuntu 24")) return ["6.8.0-40-generic", "6.8.0-51-generic", "6.8.0-60-generic"];
+  if (s.includes("ubuntu 22")) return ["5.15.0-113-generic", "5.15.0-126-generic", "5.15.0-130-generic"];
+  if (s.includes("ubuntu 20")) return ["5.4.0-196-generic", "5.4.0-204-generic"];
+  if (s.includes("debian") && s.includes("12")) return arm ? ["6.1.0-21-arm64", "6.1.0-28-arm64"] : ["6.1.0-21-amd64", "6.1.0-28-amd64"];
+  if (s.includes("debian") && s.includes("11")) return arm ? ["5.10.0-30-arm64", "5.10.0-32-arm64"] : ["5.10.0-30-amd64", "5.10.0-32-amd64"];
+  if (s.includes("alpine")) return ["6.6.32-0-lts", "6.6.46-0-lts"];
+  if (s.includes("rocky") || s.includes("alma") || s.includes("centos")) return arm ? ["5.14.0-427.el9.aarch64", "5.14.0-503.el9.aarch64"] : ["5.14.0-427.el9.x86_64", "5.14.0-503.el9.x86_64"];
+  return [];
+}
+
+// ov: 用户自定义。未指定字段时，全部从同一个模板组内生成。
 function buildProfile(token, ov = {}) {
   const rng = mulberry32(hash32("globe:" + token));
-  const cp = pick(rng, CPUS);
-  const cores = ov.cores || pick(rng, CORESET);
+  const group = selectProfileGroup(rng, ov);
+  const chosenSystem = pick(rng, group.systems);
+  const chosenSize = pick(rng, group.sizes);
+  const arch = ov.arch || group.arch;
+  const cpuName = ov.cpu || pick(rng, group.cpus);
+  const osName = ov.os || chosenSystem.os;
+  const customKernels = ov.os ? customKernelCandidates(osName, arch) : [];
+  const kernel = ov.kernel || pick(rng, customKernels.length ? customKernels : chosenSystem.kernels);
+  const cores = ov.cores || chosenSize.cores;
+  const pcores = ov.pcores || (ov.cores
+    ? (arch === "arm64" ? cores : Math.max(1, rng() < 0.55 ? cores : Math.ceil(cores / 2)))
+    : chosenSize.pcores);
   const octet = () => Math.floor(rng() * 256), h16 = () => Math.floor(rng() * 65536).toString(16);
-  // IP: 随机、且【不可被 GeoIP 定位】(否则会覆盖我们手填的国旗)。
-  //   v4 用 CGNAT 段 100.64.0.0/10(看着像真机、GeoIP 判为保留地址);
-  //   v6 用文档段 2001:db8::/32。二者都不会被解析出国家 => 国旗稳。
   const ip4 = ov.ip4 || `100.${64 + Math.floor(rng() * 64)}.${octet()}.${1 + Math.floor(rng() * 254)}`;
   const ip6 = ov.ip6 || `2001:db8:${h16()}:${h16()}:${h16()}::${(1 + Math.floor(rng() * 65534)).toString(16)}`;
-  // ipMode: 默认 v4。设 mix/random 时按 token 稳定地混搭(≈55% 双栈, 40% 仅v4, 5% 仅v6), 更像真实机群。
   let ipMode = (ov.ipmode || "v4").toLowerCase();
   if (ipMode === "mix" || ipMode === "random") {
     const r = (hash32("ipm:" + token) % 1000) / 1000;
     ipMode = r < 0.55 ? "both" : (r < 0.95 ? "v4" : "v6");
   }
+  const randomRate = (range) => Math.floor((range[0] + rng() * (range[1] - range[0])) * 1024);
   return {
-    cpu_name: ov.cpu || cp[0],
-    arch: ov.arch || cp[1],
+    profile_group: group.id,
+    profile_label: group.label,
+    cpu_name: cpuName,
+    arch,
     cpu_cores: cores,
-    cpu_physical_cores: ov.pcores || Math.max(1, rng() < 0.5 ? cores : Math.ceil(cores / 2)),
-    os: ov.os || pick(rng, OSES),
-    kernel_version: ov.kernel || pick(rng, KERNELS),
-    virtualization: ov.virt || pick(rng, VIRTS),
-    gpu_name: ov.gpu != null ? ov.gpu : (rng() < 0.15 ? "Intel Corporation 82371AB/EB/MB PIIX4 ACPI" : ""),
-    mem_total: ov.mem != null ? ov.mem : pick(rng, MEMS),
-    swap_total: ov.swap != null ? ov.swap : pick(rng, [0, 0, 0, 512 * MB, 1 * GB, 2 * GB]),
-    disk_total: ov.disk != null ? ov.disk : pick(rng, DISKS),
-    ip4, ip6, ipMode,           // v4 | v6 | both (mix/random 已在上面解析成具体值)
+    cpu_physical_cores: pcores,
+    os: osName,
+    kernel_version: kernel,
+    virtualization: ov.virt || pick(rng, group.virts),
+    gpu_name: ov.gpu != null ? ov.gpu : pick(rng, group.gpus || [""]),
+    mem_total: ov.mem != null ? ov.mem : chosenSize.mem,
+    swap_total: ov.swap != null ? ov.swap : chosenSize.swap,
+    disk_total: ov.disk != null ? ov.disk : chosenSize.disk,
+    ip4, ip6, ipMode,
 
-    // 以下为"活值"基线(稳定), 让浮动看起来合理; uprate/downrate 可自定义(KB/s), 不填=随机
-    upRate: ov.uprate != null ? ov.uprate : Math.floor(1e3 + rng() * 60e3),   // 平均上行
-    downRate: ov.downrate != null ? ov.downrate : Math.floor(2e3 + rng() * 180e3), // 平均下行
-    baseUp: Math.floor(rng() * 20) * GB,            // 累计流量基数
+    upRate: ov.uprate != null ? ov.uprate : randomRate(group.upKB || [1, 60]),
+    downRate: ov.downrate != null ? ov.downrate : randomRate(group.downKB || [2, 180]),
+    baseUp: Math.floor(rng() * 20) * GB,
     baseDown: Math.floor(rng() * 40) * GB,
-    memUsedFrac: 0.2 + rng() * 0.45,                // 内存基线占用比
-    diskUsedFrac: 0.15 + rng() * 0.5,               // 磁盘占用比(基本不变)
+    memUsedFrac: 0.2 + rng() * 0.45,
+    diskUsedFrac: 0.15 + rng() * 0.5,
     procBase: Math.floor(40 + rng() * 160),
-    // 振荡参数: 按时间平滑起伏, 每台探针周期/相位都不同。
-    // 网络周期最短(最灵动); CPU/内存中等周期 => 每次上报都看得见自然上下波动。
     cpuBase: 5 + rng() * 18, cpuAmp: 10 + rng() * 26,
-    pA: 20 + rng() * 30, pB: 120 + rng() * 200,     // CPU 主/次周期(秒), 中等
+    pA: 20 + rng() * 30, pB: 120 + rng() * 200,
     phCpu: rng() * 6.283, phNet: rng() * 6.283, phMem: rng() * 6.283,
-    pNet: 3 + rng() * 6,                            // 网络周期(秒), 快: 3~9s
-    pMem: 60 + rng() * 140,                         // 内存漂移周期, 中速(看得见)
+    pNet: 3 + rng() * 6,
+    pMem: 60 + rng() * 140,
   };
 }
+
 
 // 从 URL 参数 / 环境变量解析全局自定义配置(不填=随机)
 function overrides(url, env) {
@@ -177,6 +408,7 @@ function overrides(url, env) {
   const bytes = (v) => v == null ? undefined : Math.round(parseFloat(v) * GB); // 单位: GB
   const kbps = (v) => v == null ? undefined : Math.round(parseFloat(v) * 1024); // 单位: KB/s -> B/s
   return {
+    group: (((q("group") ?? env.SPEC_GROUP) || "").trim().toLowerCase()) || undefined,
     cpu: q("cpu") ?? env.SPEC_CPU,
     cores: num(q("cores") ?? env.SPEC_CORES),
     pcores: num(q("pcores") ?? env.SPEC_PCORES),
@@ -205,7 +437,7 @@ function basicInfo(cc, p) {
     ipv6: mode === "v4" ? "" : (p.ip6 || ""),
     region: flagEmoji(cc),
     mem_total: p.mem_total, swap_total: p.swap_total, disk_total: p.disk_total,
-    gpu_name: p.gpu_name, virtualization: p.virtualization, version: "komari-globe/1.0",
+    gpu_name: p.gpu_name, virtualization: p.virtualization, version: "komari-globe/2.0-grouped",
   };
 }
 
@@ -297,6 +529,29 @@ async function doSetup(env, c, pairs, opts = {}) {
   return { added, failed, total: byTok.size };
 }
 
+async function reprofileAgents(env, c, opts) {
+  const agents = await loadAgents(env);
+  const offset = Math.max(0, parseInt(opts.offset || 0, 10));
+  const limit = Math.max(1, Math.min(40, parseInt(opts.limit || 40, 10)));
+  const end = Math.min(agents.length, offset + limit);
+  let ok = 0;
+  const failed = [];
+  for (let i = offset; i < end; i++) {
+    const a = agents[i];
+    try {
+      const p = buildProfile(a.token, opts.ov || {});
+      await komariRpc(c.server, a.token, "agent.basicInfo", { info: basicInfo(a.country, p) }, `rp${Date.now()}-${i}`);
+      a.p = p;
+      ok++;
+    } catch (e) {
+      failed.push(`${a.country || i}: ${e.message}`);
+    }
+  }
+  await saveAgents(env, agents);
+  const nextOffset = end < agents.length ? end : null;
+  return { total: agents.length, offset, processed: end - offset, ok, failed, nextOffset };
+}
+
 async function keepAlive(env, c, opts) {
   let agents = await loadAgents(env);
   if (opts.offset || opts.limit) agents = agents.slice(opts.offset, opts.limit ? opts.offset + opts.limit : undefined);
@@ -371,7 +626,22 @@ tr:hover td{background:#0d1024}.mono{font-family:ui-monospace,Consolas,monospace
 <div class="card pane" id="p-reg"><h2>注册探针（用自动发现密钥自动建号）</h2>
 <label>国家代码（逗号分隔；留空=内置 ~200 个；同一国家写多次+勾选重复可多开）</label>
 <input id="countries" placeholder="US,JP,DE,GB,FR,AQ">
-<div class="row3">
+<div class="row4">
+<div><label>机器模板组</label><select id="group">
+<option value="">自动按权重分配</option>
+<option value="budget-x86">廉价 x86 VPS</option>
+<option value="modern-intel">现代 Intel 云主机</option>
+<option value="modern-amd">现代 AMD EPYC</option>
+<option value="aws-x86">AWS EC2 x86</option>
+<option value="aws-arm">AWS Graviton</option>
+<option value="gcp-x86">Google Cloud x86</option>
+<option value="gcp-arm">Google Cloud ARM</option>
+<option value="azure-x86">Azure x86</option>
+<option value="azure-arm">Azure ARM</option>
+<option value="oci-arm">Oracle Cloud ARM</option>
+<option value="enterprise-vmware">企业 VMware/KVM</option>
+<option value="dedicated-x86">独服/家用机</option>
+</select></div>
 <div><label>IP 模式</label><select id="ipmode"><option value="">默认(v4)</option><option>v4</option><option>v6</option><option>both</option><option>mix</option></select></div>
 <div><label>每次数量 limit</label><input id="limit" placeholder="20"></div>
 <div><label>固定 IPv4 ip4（可选）</label><input id="ip4" placeholder="随机"></div>
@@ -423,6 +693,14 @@ tr:hover td{background:#0d1024}.mono{font-family:ui-monospace,Consolas,monospace
 <button class="g" onclick="go('/status')">查看状态(文本)</button>
 <button class="g" onclick="go('/report')">直连保活一轮</button>
 <hr style="border-color:var(--line);margin:16px 0">
+<h2>重建已有探针画像</h2>
+<small>旧 KV 中保存的乱搭配置不会自动变化。每批最多 40 台，按 offset 分批重建，并立即推送到面板。</small>
+<div class="row3">
+<div><label>offset（从第几台开始）</label><input id="rp_offset" placeholder="0"></div>
+<div><label>limit（每批最多 40）</label><input id="rp_limit" placeholder="40"></div>
+<div><label>&nbsp;</label><button onclick="reprofile()">重建这一批画像</button></div>
+</div>
+<hr style="border-color:var(--line);margin:16px 0">
 <label>按国家移除（仅从 KV 移除，面板上仍需手动删）</label>
 <input id="rmc" placeholder="US,JP">
 <button class="r" onclick="rm()">移除这些国家</button>
@@ -439,9 +717,10 @@ tr:hover td{background:#0d1024}.mono{font-family:ui-monospace,Consolas,monospace
 <tr><td class="env">SELF_URL</td><td>本 worker 地址（无 SELF 绑定时的退路）</td></tr>
 <tr><td class="env">SHARD_SIZE</td><td>每分片探针数，默认 40</td></tr>
 <tr><td class="env">CRON_ROUNDS / CRON_GAP</td><td>每分钟上报轮数 / 间隔秒（如 28/2 ≈ 每 2 秒）</td></tr>
-<tr><td class="env">SPEC_*</td><td>画像全局默认：SPEC_CPU/CORES/MEM/DISK/OS/IPMODE/UPRATE… </td></tr>
+<tr><td class="env">SPEC_GROUP</td><td>固定机器模板组，如 aws-arm、budget-x86；留空则按权重稳定分配</td></tr>
+<tr><td class="env">SPEC_*</td><td>画像字段覆盖：SPEC_CPU/CORES/MEM/DISK/OS/IPMODE/UPRATE… </td></tr>
 </table>
-<p><small>路由：/register /setup /report /drive /status /list /remove /reset。开源：
+<p><small>路由：/register /setup /reprofile /report /drive /status /list /remove /reset。开源：
 <a href="https://github.com/TyrEamon/komari-LUTW" target="_blank">TyrEamon/komari-LUTW</a></small></p>
 </div>
 
@@ -460,21 +739,22 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
 function qs(o){const p=[];for(const k in o){const v=o[k];if(v!==''&&v!=null)p.push(k+'='+encodeURIComponent(v))}const kk=$('key').value.trim();if(kk)p.push('key='+encodeURIComponent(kk));return p.length?'?'+p.join('&'):''}
 async function call(path){out.textContent='请求中…';try{const r=await fetch(path);const t=await r.text();out.textContent=t;refresh()}catch(e){out.textContent='出错: '+e}}
 function go(p){const kk=$('key').value.trim();call(p+(p.includes('?')?'&':'?')+(kk?'key='+encodeURIComponent(kk):''))}
-function spec(){return{ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
+function spec(){return{group:$('group').value,ipmode:$('ipmode').value,cores:$('cores').value.trim(),pcores:$('pcores').value.trim(),mem:$('mem').value.trim(),disk:$('disk').value.trim(),swap:$('swap').value.trim(),downrate:$('downrate').value.trim(),uprate:$('uprate').value.trim(),cpu:$('cpu').value.trim(),os:$('os').value.trim(),virt:$('virt').value.trim(),arch:$('arch').value.trim(),gpu:$('gpu').value.trim(),kernel:$('kernel').value.trim(),ip4:$('ip4').value.trim(),ip6:$('ip6').value.trim()}}
 function reg(){call('/register'+qs(Object.assign({countries:$('countries').value.trim(),limit:$('limit').value.trim(),force:$('force').checked?'1':''},spec())))}
 function regAll(){if(confirm('注册内置全部 ~200 个国家? 会分批, 多点几次直到“全部完成”'))call('/register'+qs(Object.assign({limit:'40',force:$('force').checked?'1':''},spec())))}
 function setup(){call('/setup'+qs(Object.assign({tokens:$('tokens').value.trim()},spec())))}
 function drive(){go('/drive?rounds='+($('d_rounds').value.trim()||'1')+'&gap='+($('d_gap').value.trim()||'0'))}
+function reprofile(){call('/reprofile'+qs(Object.assign({offset:$('rp_offset').value.trim()||'0',limit:$('rp_limit').value.trim()||'40'},spec())))}
 function rm(){const c=$('rmc').value.trim();if(!c)return;if(confirm('从 KV 移除 '+c+' ?'))call('/remove'+qs({countries:c}))}
 function fmtB(b){b=+b;return b>=1073741824?(b/1073741824).toFixed(0)+'G':b?(b/1048576).toFixed(0)+'M':'-'}
 async function loadList(){const box=$('tbl');box.innerHTML='加载中…';try{const r=await fetch('/list');const j=await r.json();
   if(!j.count){box.innerHTML='<small>还没有探针。去“注册”标签建一些。</small>';return}
   const on=j.agents.filter(a=>a.online===true).length;
   let h='<div class="sub">共 '+j.count+' 台'+(j.onlineKnown?' · 在线 '+on+' · 离线 '+(j.count-on):' · (面板在线态不可用)')+'</div>';
-  h+='<table><tr><th>状态</th><th>国</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
+  h+='<table><tr><th>状态</th><th>国</th><th>类型</th><th>IP</th><th>配置</th><th>系统</th><th></th></tr>';
   for(const a of j.agents){const ip=a.ipMode==='v6'?a.ip6:(a.ipMode==='both'?a.ip4+' / v6':a.ip4);
     const st=a.online===true?'<span style="color:var(--ok)">●在线</span>':(a.online===false?'<span style="color:var(--err)">●离线</span>':'<span style="color:var(--mut)">–</span>');
-    h+='<tr><td>'+st+'</td><td>'+a.flag+' '+a.country+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
+    h+='<tr><td>'+st+'</td><td>'+a.flag+' '+a.country+'</td><td>'+(a.profileLabel||a.profileGroup||'-')+'</td><td class="mono">'+ip+'</td><td>'+a.cores+'核 '+fmtB(a.mem)+' '+fmtB(a.disk)+'</td><td>'+(a.os||'-')+'</td><td><button class="r s" onclick="rmTok(\\''+a.token+'\\',\\''+a.country+'\\')">✕</button></td></tr>'}
   h+='</table>';box.innerHTML=h;}catch(e){box.innerHTML='加载失败: '+e}}
 function rmTok(tok,cc){if(!confirm('移除 '+cc+' 这一台?'))return;call('/remove'+qs({tokens:tok})).then(loadList)}
 async function refresh(){try{const r=await fetch('/status');const t=await r.text();const m=t.match(/\\d+/);$('cnt').textContent=m?'· 已注册 '+m[0]+' 个':''}catch(e){}}
@@ -520,7 +800,7 @@ async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const c = cfg(url, env);
   const path = url.pathname.replace(/\/+$/, "") || "/";
-  const gated = (p) => c.accessKey && url.searchParams.get("key") !== c.accessKey && ["/register", "/setup", "/remove", "/reset"].includes(p);
+  const gated = (p) => c.accessKey && url.searchParams.get("key") !== c.accessKey && ["/register", "/setup", "/reprofile", "/remove", "/reset"].includes(p);
 
   if (!env.KOMARI_KV) return txt("❌ 未绑定 KV 命名空间 KOMARI_KV, 见部署说明", 500);
   // 首页返回可视化控制台(GET / 且非 report 调用)
@@ -555,6 +835,18 @@ async function handle(request, env, ctx) {
         `KV 内合计: ${r.total}` + (r.failed.length ? `\n失败:\n` + r.failed.join("\n") : ""));
     }
 
+    if (path === "/reprofile") {
+      if (!c.server) return txt("❌ 缺少 server(URL 参数或 KOMARI_SERVER)", 400);
+      const r = await reprofileAgents(env, c, {
+        offset: url.searchParams.get("offset") || "0",
+        limit: url.searchParams.get("limit") || "40",
+        ov: overrides(url, env),
+      });
+      return txt(`✅ 已重建 ${r.ok}/${r.processed} 台画像（总计 ${r.total} 台，当前 offset=${r.offset}）` +
+        (r.nextOffset != null ? `\n下一批请用 offset=${r.nextOffset}&limit=40` : "\n全部处理完成") +
+        (r.failed.length ? `\n失败 ${r.failed.length}:\n` + r.failed.join("\n") : ""));
+    }
+
     if (path === "/report") {
       if (!c.server) return txt("❌ 缺少 server(URL 参数或 KOMARI_SERVER)", 400);
       const r = await keepAlive(env, c, {
@@ -580,7 +872,18 @@ async function handle(request, env, ctx) {
 
     if (path === "/status") {
       const agents = await loadAgents(env);
-      return txt(`已注册 ${agents.length} 个探针:\n` + agents.map((a) => a.country + flagEmoji(a.country)).join(" "));
+      const counts = {};
+      for (const a of agents) {
+        const name = (a.p && (a.p.profile_label || a.p.profile_group)) || "旧版未分组";
+        counts[name] = (counts[name] || 0) + 1;
+      }
+      const groups = Object.entries(counts).map(([name, n]) => `${name}: ${n}`).join(" | ");
+      return txt(`已注册 ${agents.length} 个探针:
+` + agents.map((a) => a.country + flagEmoji(a.country)).join(" ") +
+        (groups ? `
+
+模板分布:
+${groups}` : ""));
     }
 
     if (path === "/list") {
@@ -608,6 +911,7 @@ async function handle(request, env, ctx) {
           country: a.country, flag: flagEmoji(a.country), token: a.token, uuid: a.uuid || "",
           online: onlineSet ? onlineSet.has(a.uuid) : null,
           ipMode: p.ipMode || "v4", ip4: p.ip4 || "", ip6: p.ip6 || "",
+          profileGroup: p.profile_group || "", profileLabel: p.profile_label || "",
           cpu: p.cpu_name || "", cores: p.cpu_cores || 0,
           mem: p.mem_total || 0, disk: p.disk_total || 0, os: p.os || "",
         };
@@ -634,7 +938,7 @@ async function handle(request, env, ctx) {
       return txt("✅ 已清空 KV 记录（面板上的探针不受影响，需在后台手动删）");
     }
 
-    return txt("komari 点亮全球\n路由: /register  /setup?tokens=tok:US  /report  /drive  /status  /remove?countries=US,JP  /reset\n先设 KOMARI_SERVER, 注册好探针, 再让 cron 定时打");
+    return txt("komari 点亮全球\n路由: /register  /setup?tokens=tok:US  /reprofile  /report  /drive  /status  /remove?countries=US,JP  /reset\n先设 KOMARI_SERVER, 注册好探针, 再让 cron 定时打");
   } catch (e) {
     return txt(`❌ 出错: ${e.message}`, 500);
   }

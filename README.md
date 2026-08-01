@@ -4,7 +4,7 @@
 伪装成全球 ~200 个国家/地区，把面板地图点满。
 
 - 直接讲 Komari 的 HTTP JSON-RPC 协议，**不需要 protobuf / 不需要跑官方 agent**。
-- 每个探针按 token 生成一套**稳定的真实感配置**（CPU 型号 / 内存 / 磁盘 / IP 固定，使用率 / 负载 / 网络自然浮动，累计流量随运行时间增长）。
+- 每个探针按 token 生成一套**稳定的真实感配置**：先按权重稳定选一个**整机模板组**（如 AWS Graviton / 廉价 x86 VPS / 独服家用机…），再只在组内挑 CPU / 系统 / 内核 / 虚拟化 / 规格，**保证 CPU、架构、系统、内核不会乱搭**；使用率 / 负载 / 网络自然浮动，累计流量随运行时间增长。
 - IP 默认随机且**不可被 GeoIP 定位**（v4 用 CGNAT `100.64/10`、v6 用 `2001:db8::`），再直接塞 `region` 国旗，
   所以**不用关面板 GeoIP，也不影响你真实的服务器**。
 
@@ -64,7 +64,7 @@
 /setup?tokens=你的token:US,另一个token:JP,第三个:AQ
 ```
 
-其它路由：`/status` 看进度、`/report` 手动保活、`/drive` 手动触发一次扇出、`/remove?countries=US,JP` 从 KV 移除指定国家（面板仍需手动删）、`/reset` 清空记录。
+其它路由：`/status` 看进度+模板分布、`/list` 结构化列表、`/report` 手动保活、`/drive` 手动触发一次扇出、`/reprofile?offset=0&limit=40` 重建已有探针画像并推送、`/remove?countries=US,JP` 从 KV 移除指定国家（面板仍需手动删）、`/reset` 清空记录。
 
 ### /register 用法与示例
 
@@ -103,6 +103,7 @@
 
 | 参数 | 说明 | 例 |
 |---|---|---|
+| `group` | 整机模板组（不填=按权重随机分配） | `aws-arm` |
 | `cpu` | CPU 型号 | `AMD%20EPYC%209654` |
 | `cores` / `pcores` | 逻辑核 / 物理核 | `4` |
 | `mem` / `swap` / `disk` | 内存 / 交换 / 磁盘（GB） | `8` |
@@ -111,10 +112,15 @@
 | `ipmode` | IP 类型：`v4` / `v6` / `both` / `mix`（默认 v4） | `mix` |
 | `ip4` / `ip6` | 固定某个 IP（默认每台随机） | `203.0.113.9` |
 
-例：`/register?cpu=AMD%20EPYC%209654&cores=4&mem=8&disk=160`
+**模板组**（`group=` 或 `SPEC_GROUP`）：`budget-x86`(廉价VPS) / `modern-intel` / `modern-amd` /
+`aws-x86` / `aws-arm`(Graviton) / `gcp-x86` / `gcp-arm` / `azure-x86` / `azure-arm` /
+`oci-arm` / `enterprise-vmware` / `dedicated-x86`(独服家用机)。
+不填时按真实占比加权随机分配，且组内 CPU/系统/内核/虚拟化自洽（不会出现 ARM CPU 配 x86 内核这种穿帮）。
 
-> IP 默认**随机、且不可被 GeoIP 定位**（v4 用 CGNAT `100.64/10`，v6 用文档段 `2001:db8::`），
-> 这样国旗不会被 GeoIP 覆盖。想要真实公网 IP 会与国旗冲突（GeoIP 会按 IP 改国家），故默认不这么做。
+例：`/register?group=aws-arm&countries=US,JP` 或 `/register?cpu=AMD%20EPYC%209654&cores=4&mem=8`
+
+> 改了老探针的配置想生效：用 `/reprofile?offset=0&limit=40`（分批，每批≤40）重建画像并推送到面板；
+> 或先 `/remove` 再重新 `/register`。IP 默认**随机、不可被 GeoIP 定位**，国旗不会被覆盖。
 
 
 ## ⚠️ 免费版也能带 200 个（自调度扇出）
